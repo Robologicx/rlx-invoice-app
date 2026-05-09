@@ -1,0 +1,876 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+
+import '../../../app/theme/app_theme.dart';
+import '../../../core/models/erp_models.dart';
+import '../../../shared/presentation/widgets/glass_panel.dart';
+import '../application/invoice_history_service.dart';
+import '../application/invoice_pdf_exporter.dart';
+import '../application/quotation_controller.dart';
+
+class InvoicesScreen extends ConsumerStatefulWidget {
+  const InvoicesScreen({super.key});
+
+  @override
+  ConsumerState<InvoicesScreen> createState() => _InvoicesScreenState();
+}
+
+class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
+  late final TextEditingController _clientController;
+  late final TextEditingController _feetController;
+  late final TextEditingController _promptController;
+  late final TextEditingController _manualNameController;
+  late final TextEditingController _manualQtyController;
+  late final TextEditingController _manualPriceController;
+  late final TextEditingController _manualUnitController;
+  late final TextEditingController _paymentReceivedController;
+  late final TextEditingController _paymentTotalController;
+  String _paymentForQuotationNo = '';
+  final NumberFormat _currency = NumberFormat.currency(
+    locale: 'en_PK',
+    symbol: 'PKR ',
+    decimalDigits: 0,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    final state = ref.read(quotationControllerProvider);
+    _clientController = TextEditingController(text: state.clientName);
+    _feetController = TextEditingController(text: state.runningFeet);
+    _promptController = TextEditingController(text: state.aiPrompt);
+    _manualNameController = TextEditingController();
+    _manualQtyController = TextEditingController(text: '1');
+    _manualPriceController = TextEditingController();
+    _manualUnitController = TextEditingController(text: 'unit');
+    _paymentReceivedController = TextEditingController();
+    _paymentTotalController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _clientController.dispose();
+    _feetController.dispose();
+    _promptController.dispose();
+    _manualNameController.dispose();
+    _manualQtyController.dispose();
+    _manualPriceController.dispose();
+    _manualUnitController.dispose();
+    _paymentReceivedController.dispose();
+    _paymentTotalController.dispose();
+    super.dispose();
+  }
+
+  void _addManualProduct(QuotationController controller) {
+    controller.addManualProduct(
+      name: _manualNameController.text,
+      quantity: double.tryParse(_manualQtyController.text) ?? 0,
+      unitPrice: double.tryParse(_manualPriceController.text) ?? 0,
+      unit: _manualUnitController.text,
+    );
+    _manualNameController.clear();
+    _manualPriceController.clear();
+    _manualQtyController.text = '1';
+    _manualUnitController.text = 'unit';
+  }
+
+  Future<void> _editPackageProductQuantity({
+    required QuotationController controller,
+    required ServiceProduct product,
+    required double currentQuantity,
+  }) async {
+    final quantityController = TextEditingController(
+      text: currentQuantity.toStringAsFixed(
+        currentQuantity.truncateToDouble() == currentQuantity ? 0 : 1,
+      ),
+    );
+
+    final nextQuantity = await showDialog<double>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text('Edit Qty - ${product.name}'),
+          content: TextField(
+            controller: quantityController,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'Quantity'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final parsed = double.tryParse(quantityController.text);
+                if (parsed == null || parsed <= 0) {
+                  return;
+                }
+                Navigator.of(dialogContext).pop(parsed);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (nextQuantity == null) {
+      return;
+    }
+
+    controller.updatePackageProductQuantity(
+      product.name,
+      nextQuantity,
+      fallbackQuantity: 1,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = ref.read(quotationControllerProvider.notifier);
+    final state = ref.watch(quotationControllerProvider);
+    final historyDocument = ref.watch(historyEditorDocumentProvider);
+    if (historyDocument != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        controller.loadFromHistory(historyDocument);
+        ref.read(historyEditorDocumentProvider.notifier).state = null;
+      });
+    }
+    final profiles = controller.profiles;
+    final profile = profiles.firstWhere(
+      (item) => item.template.id == state.selectedProfileId,
+      orElse: () => profiles.first,
+    );
+    final selectedPackage = profile.packages.firstWhere(
+      (item) => item.id == state.selectedPackageId,
+      orElse: () => profile.packages.first,
+    );
+    final isElectricFence =
+        profile.category == ServiceCategory.electricFence &&
+        !profile.template.id.startsWith('custom_template_');
+    final textTheme = Theme.of(context).textTheme;
+
+    _syncController(_clientController, state.clientName);
+    _syncController(_feetController, state.runningFeet);
+    _syncController(_promptController, state.aiPrompt);
+    final generated = state.generatedQuotation;
+    if (generated != null && _paymentForQuotationNo != generated.quotationNo) {
+      _paymentForQuotationNo = generated.quotationNo;
+      _paymentReceivedController.text = generated.paymentReceived
+          .toStringAsFixed(
+            generated.paymentReceived.truncateToDouble() ==
+                    generated.paymentReceived
+                ? 0
+                : 1,
+          );
+      _paymentTotalController.text = generated.paymentReceived.toStringAsFixed(
+        generated.paymentReceived.truncateToDouble() ==
+                generated.paymentReceived
+            ? 0
+            : 1,
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 1100;
+        final form = GlassPanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 8),
+              Text(
+                'Select a real business template, pick a predefined package, and replace placeholders only.',
+                style: textTheme.bodyMedium?.copyWith(color: AppTheme.muted),
+              ),
+              const SizedBox(height: 18),
+
+              TextField(
+                controller: _promptController,
+                minLines: 1,
+                maxLines: 2,
+                decoration: InputDecoration(
+                  labelText: 'AI Prompt (Offline)',
+                  hintText:
+                      'Example: Generate electric fence quotation for 280 feet with Nemtek',
+                  suffixIcon: IconButton(
+                    tooltip: 'Generate from prompt',
+                    icon: const Icon(Icons.psychology_alt_rounded),
+                    onPressed: () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      controller.updatePrompt(_promptController.text);
+                      await controller.generateFromPrompt();
+                      if (!mounted) return;
+                      messenger.showSnackBar(
+                        const SnackBar(
+                          content: Text('AI prompt applied to invoice.'),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                onChanged: controller.updatePrompt,
+              ),
+              const SizedBox(height: 18),
+
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  for (final item in profiles)
+                    ChoiceChip(
+                      label: Text(item.title),
+                      selected: state.selectedProfileId == item.template.id,
+                      onSelected: (_) =>
+                          controller.setProfile(item.template.id),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              DropdownButtonFormField<String>(
+                initialValue: state.selectedPackageId,
+                decoration: const InputDecoration(
+                  labelText: 'Predefined Package',
+                ),
+                items: [
+                  for (final item in profile.packages)
+                    DropdownMenuItem(value: item.id, child: Text(item.name)),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    controller.setPackage(value);
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _clientController,
+                decoration: const InputDecoration(labelText: 'Client Name'),
+                onChanged: controller.updateClientName,
+              ),
+
+              if (isElectricFence) ...[
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _feetController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Running Feet'),
+                  onChanged: controller.updateRunningFeet,
+                ),
+              ],
+              const SizedBox(height: 16),
+              Text('Package Product List', style: textTheme.titleLarge),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final item in selectedPackage.products)
+                    Builder(
+                      builder: (context) {
+                        final isSelected = !state.excludedPackageProducts
+                            .contains(item.name);
+                        final quantity = controller.packageProductQuantity(
+                          item.name,
+                          1,
+                        );
+
+                        return GestureDetector(
+                          onLongPress: isSelected
+                              ? () => _editPackageProductQuantity(
+                                  controller: controller,
+                                  product: item,
+                                  currentQuantity: quantity,
+                                )
+                              : null,
+                          child: FilterChip(
+                            label: Text(
+                              '${item.name}  •  ${quantity.toStringAsFixed(quantity.truncateToDouble() == quantity ? 0 : 1)} ${item.unit}  •  ${_currency.format(item.unitPrice)}',
+                            ),
+                            selected: isSelected,
+                            onSelected: (_) {
+                              controller.incrementPackageProductQuantity(
+                                item.name,
+                                fallbackQuantity: 1,
+                              );
+                            },
+                            deleteIcon: isSelected
+                                ? const Icon(Icons.remove_circle_outline)
+                                : null,
+                            onDeleted: isSelected
+                                ? () => controller
+                                      .decrementPackageProductQuantity(
+                                        item.name,
+                                        fallbackQuantity: 1,
+                                      )
+                                : null,
+                          ),
+                        );
+                      },
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Tap chip for +1 qty. Use minus icon for -1 qty (removes item at 0). Long press to type exact qty.',
+                style: textTheme.bodySmall?.copyWith(color: AppTheme.muted),
+              ),
+              const SizedBox(height: 12),
+              Text('Add Manual Product', style: textTheme.titleLarge),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _manualNameController,
+                decoration: const InputDecoration(labelText: 'Product Name'),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _manualQtyController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(labelText: 'Qty'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _manualUnitController,
+                      decoration: const InputDecoration(labelText: 'Unit'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _manualPriceController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Unit Price',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: () => _addManualProduct(controller),
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('Add Product'),
+                ),
+              ),
+              if (state.manualProducts.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text('Manual Products', style: textTheme.titleMedium),
+                const SizedBox(height: 8),
+                ...state.manualProducts.asMap().entries.map(
+                  (entry) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${entry.value.name}  •  ${entry.value.quantity.toStringAsFixed(entry.value.quantity.truncateToDouble() == entry.value.quantity ? 0 : 1)} ${entry.value.unit}',
+                          ),
+                        ),
+                        Text(_currency.format(entry.value.total)),
+                        IconButton(
+                          onPressed: () =>
+                              controller.removeManualProductAt(entry.key),
+                          icon: const Icon(Icons.delete_outline_rounded),
+                          tooltip: 'Remove',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              if (selectedPackage.systemVariants.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  initialValue: state.systemType.isEmpty
+                      ? null
+                      : state.systemType,
+                  decoration: const InputDecoration(labelText: 'System Type'),
+                  items: [
+                    for (final item in selectedPackage.systemVariants.entries)
+                      DropdownMenuItem(
+                        value: item.key,
+                        child: Text(
+                          '${item.key}  •  ${_currency.format(item.value)}',
+                        ),
+                      ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      controller.setSystemType(value);
+                    }
+                  },
+                ),
+              ],
+              const SizedBox(height: 18),
+              Text('Optional Items', style: textTheme.titleLarge),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  for (final item in selectedPackage.optionalItems.where(
+                    (item) => item.enabled,
+                  ))
+                    Builder(
+                      builder: (context) {
+                        final isSelected = state.selectedOptionalIds.contains(
+                          item.id,
+                        );
+                        final quantity = controller.optionalItemQuantity(
+                          item.id,
+                        );
+                        return FilterChip(
+                          label: Text(
+                            '${item.name}  •  Qty ${quantity.toStringAsFixed(quantity.truncateToDouble() == quantity ? 0 : 1)}  •  ${_currency.format(item.price)}',
+                          ),
+                          selected: isSelected,
+                          onSelected: (_) =>
+                              controller.incrementOptionalItemQuantity(item.id),
+                          deleteIcon: isSelected
+                              ? const Icon(Icons.remove_circle_outline)
+                              : null,
+                          onDeleted: isSelected
+                              ? () => controller.decrementOptionalItemQuantity(
+                                  item.id,
+                                )
+                              : null,
+                        );
+                      },
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Optional items also support + and - qty with default 1.',
+                style: textTheme.bodySmall?.copyWith(color: AppTheme.muted),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    await controller.generateQuotation();
+                  },
+                  icon: const Icon(Icons.auto_awesome_rounded),
+                  label: const Text('Generate quotation'),
+                ),
+              ),
+              if (state.generatedQuotation != null) ...[
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _paymentReceivedController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: InputDecoration(
+                    labelText: state.generatedQuotation!.isInvoice
+                        ? 'Add New Payment'
+                        : 'First Payment Received',
+                    hintText: state.generatedQuotation!.isInvoice
+                        ? 'Enter additional payment amount (will be added)'
+                        : 'Enter first received amount to convert into invoice',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      final quotation = state.generatedQuotation;
+                      if (quotation == null) {
+                        return;
+                      }
+                      final amount =
+                          double.tryParse(_paymentReceivedController.text) ?? 0;
+                      await controller.convertToInvoice(
+                        paymentReceived: amount,
+                      );
+                      final updated = ref
+                          .read(quotationControllerProvider)
+                          .generatedQuotation;
+                      if (updated != null) {
+                        _paymentTotalController.text = updated.paymentReceived
+                            .toStringAsFixed(
+                              updated.paymentReceived.truncateToDouble() ==
+                                      updated.paymentReceived
+                                  ? 0
+                                  : 1,
+                            );
+                      }
+                      _paymentReceivedController.clear();
+                      if (!mounted) return;
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            quotation.isInvoice
+                                ? 'Payment added and invoice updated.'
+                                : 'Quotation converted to invoice.',
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.receipt_rounded),
+                    label: Text(
+                      state.generatedQuotation!.isInvoice
+                          ? 'Add Payment to Invoice'
+                          : 'Convert to Invoice',
+                    ),
+                  ),
+                ),
+                if (state.generatedQuotation!.isInvoice) ...[
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _paymentTotalController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Edit Total Payment Received',
+                      hintText:
+                          'Correct payment total if previous entry was wrong',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final messenger = ScaffoldMessenger.of(context);
+                        final total =
+                            double.tryParse(_paymentTotalController.text) ?? 0;
+                        await controller.updateInvoicePaymentReceived(
+                          paymentReceived: total,
+                        );
+                        final updated = ref
+                            .read(quotationControllerProvider)
+                            .generatedQuotation;
+                        if (updated != null) {
+                          _paymentTotalController.text = updated.paymentReceived
+                              .toStringAsFixed(
+                                updated.paymentReceived.truncateToDouble() ==
+                                        updated.paymentReceived
+                                    ? 0
+                                    : 1,
+                              );
+                        }
+                        if (!mounted) return;
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Invoice payment corrected successfully.',
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.edit_rounded),
+                      label: const Text('Update Total Received Amount'),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      try {
+                        await previewInvoicePdf(
+                          context: context,
+                          quotation: state.generatedQuotation!,
+                          placeholderValues:
+                              state.generatedQuotation!.placeholderValues,
+                        );
+                      } catch (_) {
+                        if (!mounted) return;
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text('Preview failed. Try Download PDF.'),
+                          ),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.picture_as_pdf_rounded),
+                    label: const Text('Export / Print PDF'),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      try {
+                        await downloadInvoicePdf(
+                          quotation: state.generatedQuotation!,
+                          placeholderValues:
+                              state.generatedQuotation!.placeholderValues,
+                        );
+                        if (!mounted) return;
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text('PDF download started.'),
+                          ),
+                        );
+                      } catch (_) {
+                        if (!mounted) return;
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Download failed. Please try Export / Print PDF.',
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.download_rounded),
+                    label: const Text('Download PDF'),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+
+        final preview = GlassPanel(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 250),
+            child: state.generatedQuotation == null
+                ? _EmptyPreview(profile: profile)
+                : _QuotationPreview(
+                    quotation: state.generatedQuotation!,
+                    currency: _currency,
+                  ),
+          ),
+        );
+
+        if (wide) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: SingleChildScrollView(child: form)),
+              const SizedBox(width: 16),
+              Expanded(child: SingleChildScrollView(child: preview)),
+            ],
+          );
+        }
+
+        return SingleChildScrollView(
+          child: Column(children: [form, const SizedBox(height: 16), preview]),
+        );
+      },
+    );
+  }
+
+  void _syncController(TextEditingController controller, String value) {
+    if (controller.text == value) {
+      return;
+    }
+
+    controller.value = controller.value.copyWith(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+      composing: TextRange.empty,
+    );
+  }
+}
+
+class _EmptyPreview extends StatelessWidget {
+  const _EmptyPreview({required this.profile});
+
+  final ServiceProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Column(
+      key: const ValueKey('empty-preview'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Template Preview', style: textTheme.headlineMedium),
+        const SizedBox(height: 8),
+        Text(
+          'The generated document keeps the uploaded ${profile.template.fileType.label} design and swaps placeholders only.',
+          style: textTheme.bodyMedium?.copyWith(color: AppTheme.muted),
+        ),
+        const SizedBox(height: 18),
+        SelectableText(
+          profile.template.sourceMarkup,
+          style: textTheme.bodyLarge,
+        ),
+      ],
+    );
+  }
+}
+
+class _QuotationPreview extends StatelessWidget {
+  const _QuotationPreview({required this.quotation, required this.currency});
+
+  final GeneratedQuotation quotation;
+  final NumberFormat currency;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Column(
+      key: ValueKey(quotation.quotationNo),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                quotation.isInvoice
+                    ? 'Generated Invoice'
+                    : 'Generated Quotation',
+                style: textTheme.headlineMedium,
+              ),
+            ),
+            Chip(
+              label: Text(
+                quotation.isInvoice
+                    ? (quotation.invoiceNo.isEmpty
+                          ? quotation.quotationNo
+                          : quotation.invoiceNo)
+                    : quotation.quotationNo,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '${quotation.clientName}  •  ${quotation.category.label}',
+          style: textTheme.bodyLarge,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Template: ${quotation.templateName}  •  Package: ${quotation.packageName}',
+          style: textTheme.bodyMedium?.copyWith(color: AppTheme.muted),
+        ),
+        const SizedBox(height: 18),
+        ...quotation.lineItems.map(
+          (item) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(item.name, style: textTheme.bodyLarge),
+                const SizedBox(height: 2),
+                Text(
+                  'Qty: ${item.quantity.toStringAsFixed(item.quantity.truncateToDouble() == item.quantity ? 0 : 1)} ${item.unit}  •  Unit Price: ${currency.format(item.unitPrice)}  •  Total: ${currency.format(item.total)}',
+                  style: textTheme.bodyMedium?.copyWith(color: AppTheme.muted),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const Divider(height: 28, color: AppTheme.outline),
+        Row(
+          children: [
+            Expanded(child: Text('Grand Total', style: textTheme.titleLarge)),
+            Text(
+              currency.format(quotation.grandTotal),
+              style: textTheme.headlineMedium,
+            ),
+          ],
+        ),
+        if (quotation.isInvoice) ...[
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Text('Payment Received', style: textTheme.bodyLarge),
+              ),
+              Text(
+                currency.format(quotation.paymentReceived),
+                style: textTheme.bodyLarge,
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: Text('Remaining Payment', style: textTheme.titleLarge),
+              ),
+              Text(
+                currency.format(quotation.remainingPayment),
+                style: textTheme.headlineSmall,
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 18),
+        Text('Warranty', style: textTheme.titleLarge),
+        const SizedBox(height: 6),
+        Text(
+          quotation.warranty,
+          style: textTheme.bodyMedium?.copyWith(color: AppTheme.muted),
+        ),
+        const SizedBox(height: 16),
+        if (!quotation.globalSections.any(
+          (section) => section.title.toUpperCase().contains('TERM'),
+        )) ...[
+          Text('Terms & Conditions', style: textTheme.titleLarge),
+          const SizedBox(height: 6),
+          ...quotation.terms.map(
+            (item) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                '• $item',
+                style: textTheme.bodyMedium?.copyWith(color: AppTheme.muted),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+        ],
+        for (final section in quotation.globalSections) ...[
+          Text(section.title, style: textTheme.titleLarge),
+          const SizedBox(height: 6),
+          ...section.items.map(
+            (item) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                '• $item',
+                style: textTheme.bodyMedium?.copyWith(color: AppTheme.muted),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        const SizedBox(height: 16),
+        Text('Rendered Template Preview', style: textTheme.titleLarge),
+        const SizedBox(height: 6),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.22),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: SelectableText(
+            quotation.renderedTemplate,
+            style: textTheme.bodyLarge,
+          ),
+        ),
+      ],
+    );
+  }
+}
