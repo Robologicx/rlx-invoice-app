@@ -25,6 +25,11 @@ class LocalBackupService {
       return 'Backup file downloaded in browser.';
     }
 
+    // Always keep a backup copy in app storage (persists until uninstall).
+    final docsDir = await getApplicationDocumentsDirectory();
+    final appStorageFile = File('${docsDir.path}/$_backupFileName');
+    await appStorageFile.writeAsString(rawJson, flush: true);
+
     String? selectedPath;
     try {
       selectedPath = await FilePicker.platform.saveFile(
@@ -41,13 +46,10 @@ class LocalBackupService {
     if (selectedPath != null && selectedPath.isNotEmpty) {
       final file = File(selectedPath);
       await file.writeAsString(rawJson, flush: true);
-      return 'Backup file saved: ${file.path}';
+      return 'Backup saved in app storage: ${appStorageFile.path} and exported to: ${file.path}';
     }
 
-    final docsDir = await getApplicationDocumentsDirectory();
-    final file = File('${docsDir.path}/$_backupFileName');
-    await file.writeAsString(rawJson, flush: true);
-    return 'Backup saved in app storage: ${file.path}';
+    return 'Backup saved in app storage: ${appStorageFile.path}';
   }
 
   void _downloadBackupInBrowser(Uint8List bytes, String fileName) {
@@ -101,7 +103,7 @@ class LocalBackupService {
 
   Map<String, dynamic> _buildBackupPayload() {
     return {
-      'schemaVersion': 1,
+      'schemaVersion': 2,
       'createdAt': DateTime.now().toIso8601String(),
       'boxes': {
         LocalDatabase.templatesBox: _boxToJsonMap(
@@ -115,6 +117,21 @@ class LocalBackupService {
         ),
         LocalDatabase.appSettingsBox: _boxToJsonMap(
           Hive.box(LocalDatabase.appSettingsBox),
+        ),
+        LocalDatabase.inventoryItemsBox: _boxToJsonMap(
+          Hive.box<Map>(LocalDatabase.inventoryItemsBox),
+        ),
+        LocalDatabase.inventoryMovementsBox: _boxToJsonMap(
+          Hive.box<Map>(LocalDatabase.inventoryMovementsBox),
+        ),
+        LocalDatabase.expensesBox: _boxToJsonMap(
+          Hive.box<Map>(LocalDatabase.expensesBox),
+        ),
+        LocalDatabase.fixedMonthlyExpensesBox: _boxToJsonMap(
+          Hive.box<Map>(LocalDatabase.fixedMonthlyExpensesBox),
+        ),
+        LocalDatabase.teamMembersBox: _boxToJsonMap(
+          Hive.box<Map>(LocalDatabase.teamMembersBox),
         ),
       },
     };
@@ -145,6 +162,31 @@ class LocalBackupService {
       Hive.box(LocalDatabase.appSettingsBox),
       boxes,
       LocalDatabase.appSettingsBox,
+    );
+    await _restoreMapBox(
+      Hive.box<Map>(LocalDatabase.inventoryItemsBox),
+      boxes,
+      LocalDatabase.inventoryItemsBox,
+    );
+    await _restoreMapBox(
+      Hive.box<Map>(LocalDatabase.inventoryMovementsBox),
+      boxes,
+      LocalDatabase.inventoryMovementsBox,
+    );
+    await _restoreMapBox(
+      Hive.box<Map>(LocalDatabase.expensesBox),
+      boxes,
+      LocalDatabase.expensesBox,
+    );
+    await _restoreMapBox(
+      Hive.box<Map>(LocalDatabase.fixedMonthlyExpensesBox),
+      boxes,
+      LocalDatabase.fixedMonthlyExpensesBox,
+    );
+    await _restoreMapBox(
+      Hive.box<Map>(LocalDatabase.teamMembersBox),
+      boxes,
+      LocalDatabase.teamMembersBox,
     );
   }
 

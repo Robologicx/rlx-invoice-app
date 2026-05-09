@@ -19,15 +19,15 @@ class ThemeModeController extends StateNotifier<ThemeMode> {
 
   static ThemeMode _loadThemeMode() {
     if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
-      return ThemeMode.dark;
+      return ThemeMode.light;
     }
     final saved = Hive.box(LocalDatabase.appSettingsBox).get(_themeModeKey);
     if (saved is! String) {
-      return ThemeMode.dark;
+      return ThemeMode.light;
     }
     return ThemeMode.values.firstWhere(
       (mode) => mode.name == saved,
-      orElse: () => ThemeMode.dark,
+      orElse: () => ThemeMode.light,
     );
   }
 }

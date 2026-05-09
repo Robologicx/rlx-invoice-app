@@ -1759,47 +1759,6 @@ final dashboardMetricsProvider = Provider<List<DashboardMetric>>((ref) {
   ];
 });
 
-final inventoryProvider = Provider<List<InventoryItem>>((ref) {
-  return const [
-    InventoryItem(
-      name: 'Solar Panels',
-      quantity: 26,
-      price: 18000,
-      supplier: 'SunNova',
-    ),
-    InventoryItem(
-      name: 'Batteries',
-      quantity: 8,
-      price: 85000,
-      supplier: 'VoltEdge',
-    ),
-    InventoryItem(
-      name: 'Electric Fence Wire',
-      quantity: 12,
-      price: 25000,
-      supplier: 'FenceCore',
-    ),
-    InventoryItem(
-      name: 'Cameras',
-      quantity: 42,
-      price: 12500,
-      supplier: 'Dahua Partner',
-    ),
-    InventoryItem(
-      name: 'Sensors',
-      quantity: 7,
-      price: 4200,
-      supplier: 'SmartGrid',
-    ),
-    InventoryItem(
-      name: 'Smart Switches',
-      quantity: 5,
-      price: 6500,
-      supplier: 'SmartGrid',
-    ),
-  ];
-});
-
 final clientsProvider = Provider<List<ClientRecord>>((ref) {
   return const [
     ClientRecord(

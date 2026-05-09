@@ -4,9 +4,11 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../app/theme/app_theme.dart';
-import '../../../core/data/demo_data.dart';
+import '../../../core/models/erp_models.dart';
 import '../../../shared/presentation/widgets/glass_panel.dart';
 import '../../../shared/presentation/widgets/metric_card.dart';
+import '../../finance/application/finance_report_provider.dart';
+import '../../inventory/application/inventory_controller.dart';
 import '../../invoices/application/invoice_history_service.dart';
 
 class DashboardScreen extends ConsumerWidget {
@@ -14,9 +16,12 @@ class DashboardScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final metrics = ref.watch(dashboardMetricsProvider);
     final recordsAsync = ref.watch(invoiceHistoryProvider);
+    final financeAsync = ref.watch(financeSummaryProvider);
+    final inventoryState = ref.watch(inventoryProvider);
     final textTheme = Theme.of(context).textTheme;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final metricWidth = screenWidth < 640 ? screenWidth - 40 : 280.0;
     final money = NumberFormat.currency(
       locale: 'en_PK',
       symbol: 'PKR ',
@@ -35,28 +40,101 @@ class DashboardScreen extends ConsumerWidget {
             style: textTheme.bodyLarge?.copyWith(color: AppTheme.muted),
           ),
           const SizedBox(height: 24),
-          Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            children: [
-              for (var index = 0; index < metrics.length; index++)
-                SizedBox(
-                  width: 280,
-                  child: MetricCard(
-                    title: metrics[index].label,
-                    value: metrics[index].value,
-                    delta: metrics[index].delta,
-                    icon: [
-                      Icons.account_tree_rounded,
-                      Icons.pending_actions_rounded,
-                      Icons.task_alt_rounded,
-                      Icons.engineering_rounded,
-                      Icons.today_rounded,
-                      Icons.payments_rounded,
-                    ][index],
-                  ),
+          financeAsync.when(
+            data: (summary) {
+              final records =
+                  recordsAsync.valueOrNull ?? const <InvoiceRecord>[];
+              final invoices = _latestInvoiceRecords(records);
+              final thisMonth = summary.currentMonthReport;
+              final previousMonth = summary.previousMonthReport;
+
+              final currentProfit = thisMonth.profit;
+              final previousProfit = previousMonth?.profit ?? 0;
+              final profitDelta = previousProfit == 0
+                  ? 'Reset monthly'
+                  : '${(((currentProfit - previousProfit) / previousProfit.abs()) * 100).toStringAsFixed(0)}% vs last month';
+
+              final metrics = [
+                (
+                  label: 'Total Sales',
+                  value: money.format(summary.totalSales),
+                  delta: '${invoices.length} invoices',
+                  icon: Icons.point_of_sale_rounded,
                 ),
-            ],
+                (
+                  label: 'Total Expense',
+                  value: money.format(summary.totalExpenses),
+                  delta:
+                      '${summary.monthlyReports.fold<int>(0, (sum, item) => sum + item.expenseCount)} entries',
+                  icon: Icons.money_off_csred_rounded,
+                ),
+                (
+                  label: thisMonth.profit >= 0
+                      ? 'This Month Profit'
+                      : 'This Month Loss',
+                  value: money.format(thisMonth.profit.abs()),
+                  delta: profitDelta,
+                  icon: thisMonth.profit >= 0
+                      ? Icons.trending_up_rounded
+                      : Icons.trending_down_rounded,
+                ),
+                (
+                  label: 'This Month Sales',
+                  value: money.format(thisMonth.totalSales),
+                  delta: '${thisMonth.invoiceCount} invoices',
+                  icon: Icons.calendar_month_rounded,
+                ),
+                (
+                  label: 'Products in Stock',
+                  value: inventoryState.items.length.toString(),
+                  delta: '${inventoryState.lowStockCount} low stock',
+                  icon: Icons.inventory_2_rounded,
+                ),
+                (
+                  label: 'Total Stock Units',
+                  value: inventoryState.totalStock.toString(),
+                  delta: 'Real-time inventory',
+                  icon: Icons.stacked_line_chart_rounded,
+                ),
+              ];
+
+              return Wrap(
+                spacing: 16,
+                runSpacing: 16,
+                children: [
+                  for (final item in metrics)
+                    SizedBox(
+                      width: metricWidth,
+                      child: MetricCard(
+                        title: item.label,
+                        value: item.value,
+                        delta: item.delta,
+                        icon: item.icon,
+                      ),
+                    ),
+                ],
+              );
+            },
+            loading: () => Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              children: [
+                for (var i = 0; i < 6; i++)
+                  SizedBox(
+                    width: metricWidth,
+                    child: MetricCard(
+                      title: 'Loading...',
+                      value: '--',
+                      delta: 'Syncing',
+                      icon: Icons.hourglass_top_rounded,
+                    ),
+                  ),
+              ],
+            ),
+            error: (error, _) => Text(
+              'Failed to load real-time metrics: $error',
+              style: textTheme.bodyMedium?.copyWith(color: AppTheme.muted),
+            ),
           ),
           const SizedBox(height: 24),
           LayoutBuilder(
@@ -173,6 +251,11 @@ class DashboardScreen extends ConsumerWidget {
                           onTap: () => context.go('/inventory'),
                         ),
                         _QuickAction(
+                          label: 'Finance',
+                          icon: Icons.analytics_rounded,
+                          onTap: () => context.go('/finance'),
+                        ),
+                        _QuickAction(
                           label: 'Invoice History',
                           icon: Icons.history_rounded,
                           onTap: () => context.go('/history'),
@@ -234,4 +317,18 @@ class _QuickAction extends StatelessWidget {
       onPressed: onTap,
     );
   }
+}
+
+List<InvoiceRecord> _latestInvoiceRecords(List<InvoiceRecord> records) {
+  final invoiceMap = <String, InvoiceRecord>{};
+
+  for (final item in records.where((entry) => entry.isInvoice)) {
+    final key = item.parentQuotationNo;
+    final existing = invoiceMap[key];
+    if (existing == null || item.generatedAt.isAfter(existing.generatedAt)) {
+      invoiceMap[key] = item;
+    }
+  }
+
+  return invoiceMap.values.toList();
 }

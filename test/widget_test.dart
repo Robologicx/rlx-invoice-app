@@ -8,6 +8,13 @@ void main() {
   testWidgets('generates an electric fence quotation from predefined inputs', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
     await tester.pumpWidget(const ProviderScope(child: RLXInvoiceApp()));
     await tester.pumpAndSettle();
 

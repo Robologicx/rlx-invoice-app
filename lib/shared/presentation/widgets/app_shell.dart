@@ -17,7 +17,8 @@ class AppShell extends ConsumerWidget {
     '/projects',
     '/invoices',
     '/inventory',
-    '/clients',
+    '/finance',
+    '/team',
     '/history',
     '/settings',
   ];
@@ -26,7 +27,8 @@ class AppShell extends ConsumerWidget {
     (label: 'Services', icon: Icons.precision_manufacturing_rounded),
     (label: 'Invoices', icon: Icons.request_quote_rounded),
     (label: 'Products', icon: Icons.inventory_2_rounded),
-    (label: 'Clients', icon: Icons.groups_rounded),
+    (label: 'Finance', icon: Icons.analytics_rounded),
+    (label: 'Team', icon: Icons.groups_rounded),
     (label: 'History', icon: Icons.history_rounded),
     (label: 'Settings', icon: Icons.tune_rounded),
   ];
@@ -188,10 +190,15 @@ class _HeaderBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final isCompact = MediaQuery.sizeOf(context).width < 560;
 
     return GlassPanel(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      padding: EdgeInsets.symmetric(
+        horizontal: isCompact ? 16 : 20,
+        vertical: 16,
+      ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
             child: Column(
@@ -201,11 +208,14 @@ class _HeaderBar extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   'Premium quotation, inventory, and invoice operations control.',
+                  maxLines: isCompact ? 3 : 2,
+                  overflow: TextOverflow.ellipsis,
                   style: textTheme.bodyMedium?.copyWith(color: AppTheme.muted),
                 ),
               ],
             ),
           ),
+          const SizedBox(width: 12),
           Container(
             decoration: BoxDecoration(
               color: AppTheme.accent.withValues(alpha: 0.14),

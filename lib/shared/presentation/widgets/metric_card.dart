@@ -35,10 +35,17 @@ class MetricCard extends StatelessWidget {
                 ),
                 child: Icon(icon, color: AppTheme.accent),
               ),
-              const Spacer(),
-              Text(
-                delta,
-                style: textTheme.bodyMedium?.copyWith(color: AppTheme.success),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  delta,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: AppTheme.success,
+                  ),
+                ),
               ),
             ],
           ),

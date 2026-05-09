@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../ai/prompt_parser.dart';
 import '../../../core/data/demo_data.dart';
 import '../../../core/models/erp_models.dart';
+import '../../../features/inventory/application/inventory_controller.dart';
 import '../../../invoice_engine/service_rule_engine.dart';
 import 'invoice_history_service.dart';
 import 'template_engine.dart';
@@ -21,6 +22,7 @@ final quotationControllerProvider =
       final historyService = ref.watch(invoiceHistoryServiceProvider);
       final invoicePolicySections = ref.watch(invoicePolicySectionsProvider);
       return QuotationController(
+        ref: ref,
         profiles: profiles,
         templateEngine: engine,
         promptParser: parser,
@@ -106,6 +108,7 @@ class QuotationState {
 
 class QuotationController extends StateNotifier<QuotationState> {
   QuotationController({
+    required Ref ref,
     required List<ServiceProfile> profiles,
     required TemplateEngine templateEngine,
     required PromptParser promptParser,
@@ -113,6 +116,7 @@ class QuotationController extends StateNotifier<QuotationState> {
     required InvoiceHistoryService historyService,
     required List<InvoicePolicySection> invoicePolicySections,
   }) : _profiles = profiles,
+       _ref = ref,
        _templateEngine = templateEngine,
        _promptParser = promptParser,
        _ruleEngine = ruleEngine,
@@ -138,6 +142,7 @@ class QuotationController extends StateNotifier<QuotationState> {
        );
 
   final List<ServiceProfile> _profiles;
+  final Ref _ref;
   final TemplateEngine _templateEngine;
   final PromptParser _promptParser;
   final ServiceRuleEngine _ruleEngine;
@@ -469,19 +474,37 @@ class QuotationController extends StateNotifier<QuotationState> {
     String unit = 'unit',
   }) {
     final trimmed = name.trim();
+    final safeUnit = unit.trim().isEmpty ? 'unit' : unit.trim();
     if (trimmed.isEmpty || quantity <= 0 || unitPrice < 0) {
       return;
     }
 
     final next = [...state.manualProducts];
-    next.add(
-      QuotationLine(
-        name: trimmed,
-        quantity: quantity,
-        unitPrice: unitPrice,
-        unit: unit.trim().isEmpty ? 'unit' : unit.trim(),
-      ),
+    final existingIndex = next.indexWhere(
+      (item) =>
+          item.name.toLowerCase() == trimmed.toLowerCase() &&
+          item.unit.toLowerCase() == safeUnit.toLowerCase() &&
+          (item.unitPrice - unitPrice).abs() < 0.0001,
     );
+
+    if (existingIndex >= 0) {
+      final existing = next[existingIndex];
+      next[existingIndex] = QuotationLine(
+        name: existing.name,
+        quantity: existing.quantity + quantity,
+        unitPrice: existing.unitPrice,
+        unit: existing.unit,
+      );
+    } else {
+      next.add(
+        QuotationLine(
+          name: trimmed,
+          quantity: quantity,
+          unitPrice: unitPrice,
+          unit: safeUnit,
+        ),
+      );
+    }
 
     state = state.copyWith(manualProducts: next, clearGeneratedQuotation: true);
   }
@@ -697,8 +720,47 @@ class QuotationController extends StateNotifier<QuotationState> {
       placeholderValues: updatedPlaceholders,
     );
 
+    if (!current.isInvoice) {
+      _consumeInventoryForInvoice(updated);
+    }
+
     state = state.copyWith(generatedQuotation: updated);
     await _historyService.save(updated);
+  }
+
+  void _consumeInventoryForInvoice(GeneratedQuotation quotation) {
+    final inventoryController = _ref.read(inventoryProvider.notifier);
+    final currentItems = inventoryController.items;
+    final soldTotals = <String, double>{};
+
+    for (final line in quotation.lineItems) {
+      final index = currentItems.indexWhere(
+        (item) =>
+            item.name.toLowerCase().trim() == line.name.toLowerCase().trim(),
+      );
+      if (index == -1) {
+        continue;
+      }
+      soldTotals.update(
+        currentItems[index].id,
+        (value) => value + line.quantity,
+        ifAbsent: () => line.quantity,
+      );
+    }
+
+    for (final entry in soldTotals.entries) {
+      final item = currentItems.firstWhere((value) => value.id == entry.key);
+      final soldQuantity = entry.value.round();
+      if (soldQuantity <= 0) {
+        continue;
+      }
+      inventoryController.adjustStock(
+        itemId: item.id,
+        delta: -soldQuantity,
+        note:
+            'Sold via ${quotation.isInvoice && quotation.invoiceNo.isNotEmpty ? quotation.invoiceNo : quotation.quotationNo}',
+      );
+    }
   }
 
   Future<void> _generateMappedQuotation(

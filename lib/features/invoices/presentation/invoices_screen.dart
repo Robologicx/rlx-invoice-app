@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../../../app/theme/app_theme.dart';
 import '../../../core/models/erp_models.dart';
+import '../../inventory/application/inventory_controller.dart';
 import '../../../shared/presentation/widgets/glass_panel.dart';
 import '../application/invoice_history_service.dart';
 import '../application/invoice_pdf_exporter.dart';
@@ -26,6 +27,8 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
   late final TextEditingController _manualUnitController;
   late final TextEditingController _paymentReceivedController;
   late final TextEditingController _paymentTotalController;
+  final Set<String> _selectedInventoryItemIds = <String>{};
+  final Map<String, double> _selectedInventoryQuantities = <String, double>{};
   String _paymentForQuotationNo = '';
   final NumberFormat _currency = NumberFormat.currency(
     locale: 'en_PK',
@@ -73,6 +76,82 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
     _manualPriceController.clear();
     _manualQtyController.text = '1';
     _manualUnitController.text = 'unit';
+  }
+
+  void _addSelectedInventoryProducts({
+    required QuotationController controller,
+    required List<InventoryItem> inventoryItems,
+  }) {
+    for (final item in inventoryItems) {
+      if (!_selectedInventoryItemIds.contains(item.id)) {
+        continue;
+      }
+      final selectedQty = _selectedInventoryQuantities[item.id] ?? 1;
+      final safeQty = selectedQty.clamp(1, item.quantity.toDouble()).toDouble();
+      controller.addManualProduct(
+        name: item.name,
+        quantity: safeQty,
+        unitPrice: item.price,
+        unit: 'unit',
+      );
+    }
+    setState(() {
+      _selectedInventoryItemIds.clear();
+      _selectedInventoryQuantities.clear();
+    });
+  }
+
+  Future<void> _editInventorySelectedQuantity(InventoryItem item) async {
+    final current = _selectedInventoryQuantities[item.id] ?? 1;
+    final quantityController = TextEditingController(
+      text: current.toStringAsFixed(
+        current.truncateToDouble() == current ? 0 : 1,
+      ),
+    );
+
+    final nextQuantity = await showDialog<double>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text('Selected Qty - ${item.name}'),
+          content: TextField(
+            controller: quantityController,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(
+              labelText: 'Quantity',
+              helperText: 'Available stock: ${item.quantity}',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final parsed = double.tryParse(quantityController.text);
+                if (parsed == null || parsed <= 0) {
+                  return;
+                }
+                Navigator.of(
+                  dialogContext,
+                ).pop(parsed.clamp(1, item.quantity.toDouble()).toDouble());
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (nextQuantity == null) {
+      return;
+    }
+
+    setState(() {
+      _selectedInventoryQuantities[item.id] = nextQuantity;
+    });
   }
 
   Future<void> _editPackageProductQuantity({
@@ -132,6 +211,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
   Widget build(BuildContext context) {
     final controller = ref.read(quotationControllerProvider.notifier);
     final state = ref.watch(quotationControllerProvider);
+    final inventoryState = ref.watch(inventoryProvider);
     final historyDocument = ref.watch(historyEditorDocumentProvider);
     if (historyDocument != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -459,6 +539,107 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                 'Optional items also support + and - qty with default 1.',
                 style: textTheme.bodySmall?.copyWith(color: AppTheme.muted),
               ),
+              const SizedBox(height: 20),
+              Text('Existing Product List', style: textTheme.titleLarge),
+              const SizedBox(height: 8),
+              if (inventoryState.items.isEmpty)
+                Text(
+                  'No inventory products are available yet.',
+                  style: textTheme.bodyMedium?.copyWith(color: AppTheme.muted),
+                )
+              else
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        for (final item in inventoryState.items)
+                          GestureDetector(
+                            onLongPress:
+                                _selectedInventoryItemIds.contains(item.id)
+                                ? () => _editInventorySelectedQuantity(item)
+                                : null,
+                            child: FilterChip(
+                              selected: _selectedInventoryItemIds.contains(
+                                item.id,
+                              ),
+                              onSelected: item.quantity <= 0
+                                  ? null
+                                  : (selected) {
+                                      setState(() {
+                                        if (selected) {
+                                          _selectedInventoryItemIds.add(
+                                            item.id,
+                                          );
+                                          _selectedInventoryQuantities[item
+                                                  .id] =
+                                              _selectedInventoryQuantities[item
+                                                  .id] ??
+                                              1;
+                                        } else {
+                                          _selectedInventoryItemIds.remove(
+                                            item.id,
+                                          );
+                                          _selectedInventoryQuantities.remove(
+                                            item.id,
+                                          );
+                                        }
+                                      });
+                                    },
+                              avatar: Icon(
+                                item.isLowStock
+                                    ? Icons.warning_amber_rounded
+                                    : Icons.inventory_2_rounded,
+                                size: 18,
+                                color: item.isLowStock
+                                    ? AppTheme.warning
+                                    : AppTheme.accent,
+                              ),
+                              label: Text(
+                                '${item.name}  •  ${item.quantity} in stock  •  ${_currency.format(item.price)}${_selectedInventoryItemIds.contains(item.id) ? '  •  Qty ${(_selectedInventoryQuantities[item.id] ?? 1).toStringAsFixed((_selectedInventoryQuantities[item.id] ?? 1).truncateToDouble() == (_selectedInventoryQuantities[item.id] ?? 1) ? 0 : 1)}' : ''}',
+                              ),
+                              side: BorderSide(
+                                color: item.isLowStock
+                                    ? AppTheme.warning.withValues(alpha: 0.45)
+                                    : AppTheme.outline,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Select products, then long press a selected chip to edit qty.',
+                      style: textTheme.bodySmall?.copyWith(
+                        color: AppTheme.muted,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: _selectedInventoryItemIds.isEmpty
+                          ? null
+                          : () {
+                              _addSelectedInventoryProducts(
+                                controller: controller,
+                                inventoryItems: inventoryState.items,
+                              );
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Selected products added to manual items.',
+                                  ),
+                                ),
+                              );
+                            },
+                      icon: const Icon(Icons.playlist_add_rounded),
+                      label: Text(
+                        'Add Selected to Manual Products (${_selectedInventoryItemIds.length})',
+                      ),
+                    ),
+                  ],
+                ),
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,

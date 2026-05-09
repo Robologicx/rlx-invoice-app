@@ -473,20 +473,296 @@ class DashboardMetric {
   final String delta;
 }
 
+class ExpenseRecord {
+  const ExpenseRecord({
+    required this.id,
+    required this.title,
+    required this.amount,
+    required this.category,
+    required this.expenseDate,
+    required this.createdAt,
+    this.note = '',
+  });
+
+  final String id;
+  final String title;
+  final double amount;
+  final String category;
+  final DateTime expenseDate;
+  final DateTime createdAt;
+  final String note;
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'title': title,
+      'amount': amount,
+      'category': category,
+      'expenseDate': expenseDate.toIso8601String(),
+      'createdAt': createdAt.toIso8601String(),
+      'note': note,
+    };
+  }
+
+  factory ExpenseRecord.fromMap(Map<dynamic, dynamic> map) {
+    return ExpenseRecord(
+      id: map['id'] as String? ?? '',
+      title: map['title'] as String? ?? '',
+      amount: (map['amount'] as num?)?.toDouble() ?? 0,
+      category: map['category'] as String? ?? 'General',
+      expenseDate:
+          DateTime.tryParse(map['expenseDate'] as String? ?? '') ??
+          DateTime.now(),
+      createdAt:
+          DateTime.tryParse(map['createdAt'] as String? ?? '') ??
+          DateTime.now(),
+      note: map['note'] as String? ?? '',
+    );
+  }
+}
+
+class FixedMonthlyExpense {
+  const FixedMonthlyExpense({
+    required this.id,
+    required this.title,
+    required this.amount,
+    required this.category,
+    required this.createdAt,
+    this.note = '',
+    this.isActive = true,
+  });
+
+  final String id;
+  final String title;
+  final double amount;
+  final String category;
+  final DateTime createdAt;
+  final String note;
+  final bool isActive;
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'title': title,
+      'amount': amount,
+      'category': category,
+      'createdAt': createdAt.toIso8601String(),
+      'note': note,
+      'isActive': isActive,
+    };
+  }
+
+  factory FixedMonthlyExpense.fromMap(Map<dynamic, dynamic> map) {
+    return FixedMonthlyExpense(
+      id: map['id'] as String? ?? '',
+      title: map['title'] as String? ?? '',
+      amount: (map['amount'] as num?)?.toDouble() ?? 0,
+      category: map['category'] as String? ?? 'Fixed Expense',
+      createdAt:
+          DateTime.tryParse(map['createdAt'] as String? ?? '') ??
+          DateTime.now(),
+      note: map['note'] as String? ?? '',
+      isActive: map['isActive'] as bool? ?? true,
+    );
+  }
+}
+
+class TeamMember {
+  const TeamMember({
+    required this.id,
+    required this.name,
+    required this.role,
+    required this.monthlySalary,
+    required this.projectCommission,
+    required this.updatedAt,
+    this.note = '',
+  });
+
+  final String id;
+  final String name;
+  final String role;
+  final double monthlySalary;
+  final double projectCommission;
+  final DateTime updatedAt;
+  final String note;
+
+  double get totalMonthlyPayout => monthlySalary + projectCommission;
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+      'role': role,
+      'monthlySalary': monthlySalary,
+      'projectCommission': projectCommission,
+      'updatedAt': updatedAt.toIso8601String(),
+      'note': note,
+    };
+  }
+
+  factory TeamMember.fromMap(Map<dynamic, dynamic> map) {
+    return TeamMember(
+      id: map['id'] as String? ?? '',
+      name: map['name'] as String? ?? '',
+      role: map['role'] as String? ?? 'Team Member',
+      monthlySalary: (map['monthlySalary'] as num?)?.toDouble() ?? 0,
+      projectCommission: (map['projectCommission'] as num?)?.toDouble() ?? 0,
+      updatedAt:
+          DateTime.tryParse(map['updatedAt'] as String? ?? '') ??
+          DateTime.now(),
+      note: map['note'] as String? ?? '',
+    );
+  }
+}
+
+class MonthlyFinanceReport {
+  const MonthlyFinanceReport({
+    required this.month,
+    required this.totalSales,
+    required this.totalExpenses,
+    required this.profit,
+    required this.invoiceCount,
+    required this.expenseCount,
+  });
+
+  final DateTime month;
+  final double totalSales;
+  final double totalExpenses;
+  final double profit;
+  final int invoiceCount;
+  final int expenseCount;
+}
+
+class FinanceSummary {
+  const FinanceSummary({
+    required this.totalSales,
+    required this.totalExpenses,
+    required this.totalProfit,
+    required this.monthlyReports,
+    required this.currentMonthReport,
+    this.previousMonthReport,
+  });
+
+  final double totalSales;
+  final double totalExpenses;
+  final double totalProfit;
+  final List<MonthlyFinanceReport> monthlyReports;
+  final MonthlyFinanceReport currentMonthReport;
+  final MonthlyFinanceReport? previousMonthReport;
+}
+
 class InventoryItem {
   const InventoryItem({
+    required this.id,
     required this.name,
     required this.quantity,
     required this.price,
     required this.supplier,
+    this.minQuantity = 10,
   });
 
+  final String id;
   final String name;
   final int quantity;
   final double price;
   final String supplier;
+  final int minQuantity;
 
-  bool get isLowStock => quantity < 10;
+  bool get isLowStock => quantity < minQuantity;
+
+  InventoryItem copyWith({
+    String? id,
+    String? name,
+    int? quantity,
+    double? price,
+    String? supplier,
+    int? minQuantity,
+  }) {
+    return InventoryItem(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      quantity: quantity ?? this.quantity,
+      price: price ?? this.price,
+      supplier: supplier ?? this.supplier,
+      minQuantity: minQuantity ?? this.minQuantity,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+      'quantity': quantity,
+      'price': price,
+      'supplier': supplier,
+      'minQuantity': minQuantity,
+    };
+  }
+
+  factory InventoryItem.fromMap(Map<dynamic, dynamic> map) {
+    return InventoryItem(
+      id: map['id'] as String? ?? '',
+      name: map['name'] as String? ?? '',
+      quantity: (map['quantity'] as num?)?.toInt() ?? 0,
+      price: (map['price'] as num?)?.toDouble() ?? 0,
+      supplier: map['supplier'] as String? ?? '',
+      minQuantity: (map['minQuantity'] as num?)?.toInt() ?? 10,
+    );
+  }
+}
+
+class InventoryMovement {
+  const InventoryMovement({
+    required this.id,
+    required this.itemId,
+    required this.itemName,
+    required this.type,
+    required this.quantityChange,
+    required this.previousQuantity,
+    required this.newQuantity,
+    required this.note,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String itemId;
+  final String itemName;
+  final String type;
+  final int quantityChange;
+  final int previousQuantity;
+  final int newQuantity;
+  final String note;
+  final DateTime createdAt;
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'itemId': itemId,
+      'itemName': itemName,
+      'type': type,
+      'quantityChange': quantityChange,
+      'previousQuantity': previousQuantity,
+      'newQuantity': newQuantity,
+      'note': note,
+      'createdAt': createdAt.toIso8601String(),
+    };
+  }
+
+  factory InventoryMovement.fromMap(Map<dynamic, dynamic> map) {
+    return InventoryMovement(
+      id: map['id'] as String? ?? '',
+      itemId: map['itemId'] as String? ?? '',
+      itemName: map['itemName'] as String? ?? '',
+      type: map['type'] as String? ?? 'adjust',
+      quantityChange: (map['quantityChange'] as num?)?.toInt() ?? 0,
+      previousQuantity: (map['previousQuantity'] as num?)?.toInt() ?? 0,
+      newQuantity: (map['newQuantity'] as num?)?.toInt() ?? 0,
+      note: map['note'] as String? ?? '',
+      createdAt:
+          DateTime.tryParse(map['createdAt'] as String? ?? '') ??
+          DateTime.now(),
+    );
+  }
 }
 
 class ClientRecord {
@@ -532,11 +808,15 @@ class UploadedTemplate {
 
 const firestoreCollections = <String>[
   'templates',
-  'services',
+  'service_profiles',
   'products',
-  'packages',
   'quotations',
-  'clients',
+  'invoices',
+  'inventory_items',
+  'inventory_movements',
+  'expenses',
+  'fixed_monthly_expenses',
+  'team_members',
   'settings',
   'users',
 ];

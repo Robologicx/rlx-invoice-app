@@ -10,7 +10,10 @@ import '../../../app/theme/theme_mode_provider.dart';
 import '../../../core/data/demo_data.dart';
 import '../../../core/models/erp_models.dart';
 import '../../../shared/presentation/widgets/glass_panel.dart';
+import '../../finance/application/expense_service.dart';
+import '../../inventory/application/inventory_controller.dart';
 import '../../invoices/application/invoice_history_service.dart';
+import '../../team/application/team_service.dart';
 import '../application/google_drive_backup_service.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -42,42 +45,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: 24),
           GlassPanel(
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('App Theme', style: textTheme.titleLarge),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Switch full app between Dark and White theme.',
-                        style: textTheme.bodyMedium?.copyWith(
-                          color: AppTheme.muted,
-                        ),
+                Text('App Theme', style: textTheme.titleLarge),
+                const SizedBox(height: 6),
+                Text(
+                  'Switch full app between Dark and White theme.',
+                  style: textTheme.bodyMedium?.copyWith(color: AppTheme.muted),
+                ),
+                const SizedBox(height: 12),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: SegmentedButton<ThemeMode>(
+                    segments: const [
+                      ButtonSegment<ThemeMode>(
+                        value: ThemeMode.dark,
+                        label: Text('Dark'),
+                        icon: Icon(Icons.dark_mode_rounded),
+                      ),
+                      ButtonSegment<ThemeMode>(
+                        value: ThemeMode.light,
+                        label: Text('White'),
+                        icon: Icon(Icons.light_mode_rounded),
                       ),
                     ],
+                    selected: {themeMode},
+                    onSelectionChanged: (selection) {
+                      ref
+                          .read(themeModeProvider.notifier)
+                          .setThemeMode(selection.first);
+                    },
                   ),
-                ),
-                SegmentedButton<ThemeMode>(
-                  segments: const [
-                    ButtonSegment<ThemeMode>(
-                      value: ThemeMode.dark,
-                      label: Text('Dark'),
-                      icon: Icon(Icons.dark_mode_rounded),
-                    ),
-                    ButtonSegment<ThemeMode>(
-                      value: ThemeMode.light,
-                      label: Text('White'),
-                      icon: Icon(Icons.light_mode_rounded),
-                    ),
-                  ],
-                  selected: {themeMode},
-                  onSelectionChanged: (selection) {
-                    ref
-                        .read(themeModeProvider.notifier)
-                        .setThemeMode(selection.first);
-                  },
                 ),
               ],
             ),
@@ -138,6 +137,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ref.invalidate(serviceCatalogEditsProvider);
                           ref.invalidate(themeModeProvider);
                           ref.invalidate(invoiceHistoryProvider);
+                          ref.invalidate(inventoryProvider);
+                          ref.invalidate(expenseHistoryProvider);
+                          ref.invalidate(fixedMonthlyExpensesProvider);
+                          ref.invalidate(teamMembersProvider);
 
                           if (!context.mounted) {
                             return;
@@ -346,6 +349,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     for (final collection in firestoreCollections)
                       Chip(label: Text(collection)),
                   ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          GlassPanel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Made by Robologicx', style: textTheme.titleLarge),
+                const SizedBox(height: 6),
+                Text(
+                  'www.robologicx.org',
+                  style: textTheme.bodyLarge?.copyWith(color: AppTheme.accent),
                 ),
               ],
             ),
