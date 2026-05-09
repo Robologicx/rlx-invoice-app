@@ -9,6 +9,7 @@ class ParsedPrompt {
     required this.packageHint,
     required this.systemHint,
     required this.clientName,
+    required this.wantsInvoice,
   });
 
   final ServiceCategory? category;
@@ -16,6 +17,7 @@ class ParsedPrompt {
   final String packageHint;
   final String systemHint;
   final String clientName;
+  final bool wantsInvoice;
 }
 
 class PromptParser {
@@ -30,7 +32,16 @@ class PromptParser {
       packageHint: _extractPackageHint(input),
       systemHint: _extractSystemHint(input),
       clientName: _extractClientName(prompt),
+      wantsInvoice: _detectInvoiceIntent(input),
     );
+  }
+
+  bool _detectInvoiceIntent(String input) {
+    return input.contains('invoice') ||
+        input.contains('bill') ||
+        input.contains('tax invoice') ||
+        input.contains('generate invoice') ||
+        input.contains('make invoice');
   }
 
   ServiceCategory? _detectCategory(String input) {

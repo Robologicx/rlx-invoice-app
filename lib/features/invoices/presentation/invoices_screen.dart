@@ -6,6 +6,7 @@ import '../../../app/theme/app_theme.dart';
 import '../../../core/models/erp_models.dart';
 import '../../inventory/application/inventory_controller.dart';
 import '../../../shared/presentation/widgets/glass_panel.dart';
+import '../application/invoice_ai_service.dart';
 import '../application/invoice_history_service.dart';
 import '../application/invoice_pdf_exporter.dart';
 import '../application/quotation_controller.dart';
@@ -35,6 +36,9 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
     symbol: 'PKR ',
     decimalDigits: 0,
   );
+  String _aiStatusText = 'AI status: offline fallback ready';
+  Color _aiStatusColor = AppTheme.muted;
+  String _aiResultText = 'AI result: no prompt has been generated yet.';
 
   @override
   void initState() {
@@ -277,22 +281,96 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                   hintText:
                       'Example: Generate electric fence quotation for 280 feet with Nemtek',
                   suffixIcon: IconButton(
-                    tooltip: 'Generate from prompt',
+                    tooltip: 'Generate quotation or invoice from prompt',
                     icon: const Icon(Icons.psychology_alt_rounded),
                     onPressed: () async {
                       final messenger = ScaffoldMessenger.of(context);
-                      controller.updatePrompt(_promptController.text);
-                      await controller.generateFromPrompt();
+                      final promptText = _promptController.text.trim();
+                      controller.updatePrompt(promptText);
+
+                      final aiService = ref.read(invoiceAiServiceProvider);
+                      GeneratedQuotation? result;
+                      final aiResult = await aiService
+                          .interpretPromptWithFallback(
+                            prompt: promptText,
+                            profiles: controller.profiles,
+                          );
+                      result = await controller.generateFromParsedPrompt(
+                        aiResult.prompt,
+                      );
+                      if (!mounted) return;
+                      setState(() {
+                        if (aiResult.usedOnlineAi) {
+                          _aiStatusText = 'AI status: online Gemini';
+                          _aiStatusColor = AppTheme.success;
+                        } else {
+                          _aiStatusText = 'AI status: offline fallback';
+                          _aiStatusColor = AppTheme.warning;
+                        }
+                        final parsed = aiResult.prompt;
+                        final pieces = <String>[];
+                        if (parsed.category != null) {
+                          pieces.add(parsed.category!.label);
+                        }
+                        if (parsed.packageHint.isNotEmpty) {
+                          pieces.add('package: ${parsed.packageHint}');
+                        }
+                        if (parsed.systemHint.isNotEmpty) {
+                          pieces.add('system: ${parsed.systemHint}');
+                        }
+                        if (parsed.quantity != null) {
+                          pieces.add(
+                            'qty: ${parsed.quantity!.toStringAsFixed(parsed.quantity!.truncateToDouble() == parsed.quantity ? 0 : 1)}',
+                          );
+                        }
+                        if (parsed.clientName.isNotEmpty) {
+                          pieces.add('client: ${parsed.clientName}');
+                        }
+                        pieces.add(
+                          parsed.wantsInvoice ? 'invoice' : 'quotation',
+                        );
+                        _aiResultText = 'AI result: ${pieces.join(' | ')}';
+                      });
                       if (!mounted) return;
                       messenger.showSnackBar(
-                        const SnackBar(
-                          content: Text('AI prompt applied to invoice.'),
+                        SnackBar(
+                          content: Text(
+                            result?.isInvoice == true
+                                ? 'AI prompt created an invoice.'
+                                : 'AI prompt created a quotation.',
+                          ),
                         ),
                       );
                     },
                   ),
                 ),
                 onChanged: controller.updatePrompt,
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Chip(
+                  avatar: Icon(
+                    _aiStatusText.contains('online')
+                        ? Icons.cloud_done_rounded
+                        : Icons.cloud_off_rounded,
+                    size: 18,
+                    color: _aiStatusColor,
+                  ),
+                  label: Text(
+                    _aiStatusText,
+                    style: TextStyle(color: _aiStatusColor),
+                  ),
+                  side: BorderSide(
+                    color: _aiStatusColor.withValues(alpha: 0.35),
+                  ),
+                  backgroundColor: _aiStatusColor.withValues(alpha: 0.08),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _aiResultText,
+                style: textTheme.bodySmall?.copyWith(color: AppTheme.muted),
               ),
               const SizedBox(height: 18),
 

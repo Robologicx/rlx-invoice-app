@@ -272,9 +272,19 @@ class QuotationController extends StateNotifier<QuotationState> {
     );
   }
 
-  Future<void> generateFromPrompt() async {
-    final parsed = _promptParser.parse(state.aiPrompt);
+  Future<GeneratedQuotation?> generateFromPrompt() async {
+    return _generateFromParsedPrompt(_promptParser.parse(state.aiPrompt));
+  }
 
+  Future<GeneratedQuotation?> generateFromParsedPrompt(
+    ParsedPrompt parsed,
+  ) async {
+    return _generateFromParsedPrompt(parsed);
+  }
+
+  Future<GeneratedQuotation?> _generateFromParsedPrompt(
+    ParsedPrompt parsed,
+  ) async {
     if (parsed.category != null) {
       setCategory(parsed.category!);
     }
@@ -299,13 +309,19 @@ class QuotationController extends StateNotifier<QuotationState> {
       if (parsed.category == ServiceCategory.cctv) {
         final mapped = _ruleEngine.cctvMappedProducts(parsed.quantity!);
         await _generateMappedQuotation(mapped);
-        return;
+        if (parsed.wantsInvoice) {
+          await convertToInvoice(paymentReceived: 0);
+        }
+        return state.generatedQuotation;
       }
 
       if (parsed.category == ServiceCategory.solar) {
         final mapped = _ruleEngine.solarMappedProducts(parsed.quantity!);
         await _generateMappedQuotation(mapped);
-        return;
+        if (parsed.wantsInvoice) {
+          await convertToInvoice(paymentReceived: 0);
+        }
+        return state.generatedQuotation;
       }
     }
 
@@ -321,6 +337,11 @@ class QuotationController extends StateNotifier<QuotationState> {
     }
 
     await generateQuotation();
+    if (parsed.wantsInvoice) {
+      await convertToInvoice(paymentReceived: 0);
+    }
+
+    return state.generatedQuotation;
   }
 
   void toggleOptional(String optionalId) {
