@@ -103,6 +103,28 @@ class OptionalItem {
   }
 }
 
+/// A single tier in a quantity-based rate calculation.
+/// [upTo] is the maximum quantity for this tier (use `double.infinity` for catch-all).
+/// When quantity <= upTo, [rate] is used as the price per unit.
+class RateRule {
+  const RateRule({required this.upTo, required this.rate});
+
+  final double upTo;
+  final double rate;
+
+  Map<String, dynamic> toMap() => {
+    'upTo': upTo == double.infinity ? null : upTo,
+    'rate': rate,
+  };
+
+  static RateRule fromMap(Map<dynamic, dynamic> map) => RateRule(
+    upTo: map['upTo'] == null
+        ? double.infinity
+        : (map['upTo'] as num).toDouble(),
+    rate: (map['rate'] as num?)?.toDouble() ?? 0,
+  );
+}
+
 class ServicePackage {
   const ServicePackage({
     required this.id,
@@ -112,12 +134,15 @@ class ServicePackage {
     required this.templateId,
     this.products = const [],
     this.optionalItems = const [],
-    this.systemVariants = const {},
+    Map<String, double>? systemVariants = const {},
     this.hardwareRate = 0,
-    this.configurationCharge = 0,
-    this.installationCharge = 0,
+    this.quantityLabel = '',
+    this.quantityDescription = '',
+    double? defaultQuantity = 0,
+    this.rateRules = const [],
     this.calculationNotes = '',
-  });
+  }) : _systemVariants = systemVariants,
+       _defaultQuantity = defaultQuantity;
 
   final String id;
   final String name;
@@ -126,10 +151,23 @@ class ServicePackage {
   final String templateId;
   final List<ServiceProduct> products;
   final List<OptionalItem> optionalItems;
-  final Map<String, double> systemVariants;
+  final Map<String, double>? _systemVariants;
+  Map<String, double> get systemVariants => _systemVariants ?? const {};
   final double hardwareRate;
-  final double configurationCharge;
-  final double installationCharge;
+
+  /// Label for the quantity input field (e.g. "Running Feet"). Empty = no qty input.
+  final String quantityLabel;
+
+  /// Helper text shown under the quantity input field.
+  final String quantityDescription;
+
+  /// Default quantity shown when this package is selected.
+  /// Kept null-safe for older persisted/compiled objects where this field may be missing.
+  final double? _defaultQuantity;
+  double get defaultQuantity => _defaultQuantity ?? 0;
+
+  /// Conditional rates: sorted by [upTo] ascending; last entry is catch-all.
+  final List<RateRule> rateRules;
   final String calculationNotes;
 }
 
@@ -767,20 +805,56 @@ class InventoryMovement {
 
 class ClientRecord {
   const ClientRecord({
+    this.id,
     required this.name,
     required this.phone,
     required this.address,
     required this.projectType,
     required this.paymentStatus,
     required this.previousHistory,
+    this.createdAt,
+    this.updatedAt,
   });
 
+  final String? id;
   final String name;
   final String phone;
   final String address;
   final String projectType;
   final String paymentStatus;
   final String previousHistory;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+      'phone': phone,
+      'address': address,
+      'projectType': projectType,
+      'paymentStatus': paymentStatus,
+      'previousHistory': previousHistory,
+      'createdAt': createdAt?.toIso8601String(),
+      'updatedAt': updatedAt?.toIso8601String(),
+    };
+  }
+
+  factory ClientRecord.fromMap(Map<String, dynamic> map, {String? docId}) {
+    return ClientRecord(
+      id: docId,
+      name: map['name'] as String? ?? '',
+      phone: map['phone'] as String? ?? '',
+      address: map['address'] as String? ?? '',
+      projectType: map['projectType'] as String? ?? '',
+      paymentStatus: map['paymentStatus'] as String? ?? '',
+      previousHistory: map['previousHistory'] as String? ?? '',
+      createdAt:
+          DateTime.tryParse(map['createdAt'] as String? ?? '') ??
+          DateTime.now(),
+      updatedAt: DateTime.tryParse(map['updatedAt'] as String? ?? ''),
+    );
+  }
 }
 
 /// Represents a template file uploaded by the user from their device.

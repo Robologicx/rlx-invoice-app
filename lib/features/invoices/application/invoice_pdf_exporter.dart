@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:pdf/pdf.dart';
@@ -9,6 +10,18 @@ import 'package:printing/printing.dart';
 
 import '../../../core/models/erp_models.dart';
 import '../../../database/local_database.dart';
+
+const _invoiceBusinessDetailsSettingsKey = 'invoice_business_details';
+
+String? _activeUserId() => FirebaseAuth.instance.currentUser?.uid;
+
+String? _scopedSettingsKey(String key) {
+  final userId = _activeUserId();
+  if (userId == null || userId.isEmpty) {
+    return null;
+  }
+  return '$userId::$key';
+}
 
 /// Generates and previews a PDF from a [GeneratedQuotation].
 /// If [uploadedTemplate] is provided and non-null, the filled template text
@@ -64,6 +77,7 @@ Future<Uint8List> buildInvoicePdfBytes({
   final baseFont = await PdfGoogleFonts.robotoRegular();
   final logoBytes = _loadInvoiceLogoBytes();
   final logoImage = logoBytes == null ? null : pw.MemoryImage(logoBytes);
+  final businessDetails = _loadInvoiceBusinessDetails();
   final headerStyle = pw.TextStyle(
     fontSize: 20,
     fontWeight: pw.FontWeight.bold,
@@ -81,6 +95,16 @@ Future<Uint8List> buildInvoicePdfBytes({
   );
   final bodyStyle = pw.TextStyle(fontSize: 10, color: darkText);
   final mutedStyle = pw.TextStyle(fontSize: 9, color: muted);
+  final quantityDescription =
+      (placeholderValues?['quantity_description'] ??
+              quotation.placeholderValues['quantity_description'] ??
+              '')
+          .trim();
+  final quantityLabel =
+      (placeholderValues?['quantity_label'] ??
+              quotation.placeholderValues['quantity_label'] ??
+              '')
+          .trim();
   final documentNumber = quotation.isInvoice && quotation.invoiceNo.isNotEmpty
       ? quotation.invoiceNo
       : quotation.quotationNo;
@@ -109,20 +133,34 @@ Future<Uint8List> buildInvoicePdfBytes({
             pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                pw.Text('RLX Invoice', style: headerStyle),
+                pw.Text(businessDetails['businessName']!, style: headerStyle),
                 pw.SizedBox(height: 3),
                 pw.Text(
-                  'Address: Near NBP bank, Hussani Chowk, Bahawalpur',
+                  'Address: ${businessDetails['address']}',
                   style: mutedStyle,
                 ),
-                pw.Text('Phone: 0301-8777220', style: mutedStyle),
-                pw.Text('Email: info.robologicx@gmail.com', style: mutedStyle),
+                pw.Text(
+                  'Phone: ${businessDetails['phone']}',
+                  style: mutedStyle,
+                ),
+                pw.Text(
+                  'Email: ${businessDetails['email']}',
+                  style: mutedStyle,
+                ),
+                if ((businessDetails['website'] ?? '').trim().isNotEmpty)
+                  pw.Text(
+                    'Website: ${businessDetails['website']}',
+                    style: mutedStyle,
+                  ),
               ],
             ),
             pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.end,
               children: [
-                pw.Text('INVOICE', style: invoiceHeadingStyle),
+                pw.Text(
+                  quotation.isInvoice ? 'INVOICE' : 'QUOTATION',
+                  style: invoiceHeadingStyle,
+                ),
                 pw.SizedBox(height: 5),
                 pw.Text('No: $documentNumber', style: titleStyle),
                 pw.Text(
@@ -148,7 +186,10 @@ Future<Uint8List> buildInvoicePdfBytes({
                 child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text('Quotation For', style: titleStyle),
+                    pw.Text(
+                      quotation.isInvoice ? 'Invoice For' : 'Quotation For',
+                      style: titleStyle,
+                    ),
                     pw.SizedBox(height: 4),
                     pw.Text(quotation.clientName, style: bodyStyle),
                     pw.Text(
@@ -166,10 +207,11 @@ Future<Uint8List> buildInvoicePdfBytes({
                     pw.Text('Prepared By', style: titleStyle),
                     pw.SizedBox(height: 4),
                     pw.Text('RLX Invoice Team', style: bodyStyle),
-                    pw.Text(
-                      'Valid until: ${_validUntil(quotation.generatedDate)}',
-                      style: mutedStyle,
-                    ),
+                    if (!quotation.isInvoice)
+                      pw.Text(
+                        'Valid until: ${_validUntil(quotation.generatedDate)}',
+                        style: mutedStyle,
+                      ),
                   ],
                 ),
               ),
@@ -237,7 +279,12 @@ Future<Uint8List> buildInvoicePdfBytes({
               (item) => pw.TableRow(
                 children: [
                   _cell(
-                    _lineItemDescription(quotation, item),
+                    _lineItemDescription(
+                      quotation,
+                      item,
+                      quantityLabel: quantityLabel,
+                      quantityDescription: quantityDescription,
+                    ),
                     bodyStyle,
                     align: pw.Alignment.centerLeft,
                   ),
@@ -376,7 +423,20 @@ pw.Widget _cell(
   ),
 );
 
-String _lineItemDescription(GeneratedQuotation quotation, QuotationLine item) {
+String _lineItemDescription(
+  GeneratedQuotation quotation,
+  QuotationLine item, {
+  String quantityLabel = '',
+  String quantityDescription = '',
+}) {
+  final normalizedQtyLabel = quantityLabel.trim().toLowerCase();
+  final isQuantityLine =
+      normalizedQtyLabel.isNotEmpty &&
+      item.name.trim().toLowerCase() == normalizedQtyLabel;
+  if (isQuantityLine && quantityDescription.trim().isNotEmpty) {
+    return '${item.name}\n${quantityDescription.trim()}';
+  }
+
   final isFenceHardware = item.name.toLowerCase() == 'fence hardware';
   if (quotation.category != ServiceCategory.electricFence || !isFenceHardware) {
     return item.name;
@@ -411,9 +471,11 @@ Uint8List? _loadInvoiceLogoBytes() {
   if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
     return null;
   }
-  final saved = Hive.box(
-    LocalDatabase.appSettingsBox,
-  ).get('invoice_logo_base64');
+  final scopedKey = _scopedSettingsKey('invoice_logo_base64');
+  if (scopedKey == null) {
+    return null;
+  }
+  final saved = Hive.box(LocalDatabase.appSettingsBox).get(scopedKey);
   if (saved is Uint8List && saved.isNotEmpty) {
     return _isPdfSupportedImageBytes(saved) ? saved : null;
   }
@@ -426,6 +488,45 @@ Uint8List? _loadInvoiceLogoBytes() {
   } catch (_) {
     return null;
   }
+}
+
+Map<String, String> _loadInvoiceBusinessDetails() {
+  const fallback = <String, String>{
+    'businessName': 'RLX Invoice',
+    'address': 'Near NBP bank, Hussani Chowk, Bahawalpur',
+    'phone': '0301-8777220',
+    'email': 'info.robologicx@gmail.com',
+    'website': 'www.robologicx.org',
+  };
+
+  if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
+    return fallback;
+  }
+  final scopedKey = _scopedSettingsKey(_invoiceBusinessDetailsSettingsKey);
+  if (scopedKey == null) {
+    return fallback;
+  }
+  final saved = Hive.box(LocalDatabase.appSettingsBox).get(scopedKey);
+  if (saved is! Map) {
+    return fallback;
+  }
+
+  return {
+    'businessName':
+        (saved['businessName'] as String?)?.trim().isNotEmpty == true
+        ? (saved['businessName'] as String).trim()
+        : fallback['businessName']!,
+    'address': (saved['address'] as String?)?.trim().isNotEmpty == true
+        ? (saved['address'] as String).trim()
+        : fallback['address']!,
+    'phone': (saved['phone'] as String?)?.trim().isNotEmpty == true
+        ? (saved['phone'] as String).trim()
+        : fallback['phone']!,
+    'email': (saved['email'] as String?)?.trim().isNotEmpty == true
+        ? (saved['email'] as String).trim()
+        : fallback['email']!,
+    'website': (saved['website'] as String?)?.trim() ?? fallback['website']!,
+  };
 }
 
 bool _isPdfSupportedImageBytes(Uint8List bytes) {

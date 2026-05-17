@@ -4,14 +4,17 @@ import 'dart:ui' as ui;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../app/theme/app_theme.dart';
 import '../../../app/theme/theme_mode_provider.dart';
 import '../../../core/data/demo_data.dart';
 import '../../../core/models/erp_models.dart';
+import '../../../core/services/firebase_auth_service.dart';
 import '../../../shared/presentation/widgets/glass_panel.dart';
 import '../../finance/application/expense_service.dart';
 import '../../inventory/application/inventory_controller.dart';
+import '../../invoices/application/invoice_ai_service.dart';
 import '../../invoices/application/invoice_history_service.dart';
 import '../../team/application/team_service.dart';
 import '../application/google_drive_backup_service.dart';
@@ -25,13 +28,118 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   static const int _maxLogoBytes = 2 * 1024 * 1024;
+  late final TextEditingController _geminiApiKeyController;
+  TextEditingController? _invoiceBusinessNameController;
+  TextEditingController? _invoiceAddressController;
+  TextEditingController? _invoicePhoneController;
+  TextEditingController? _invoiceEmailController;
+  TextEditingController? _invoiceWebsiteController;
+  bool _showGeminiApiKey = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _geminiApiKeyController = TextEditingController(
+      text: ref.read(geminiApiKeyProvider),
+    );
+  }
+
+  @override
+  void dispose() {
+    _geminiApiKeyController.dispose();
+    _invoiceBusinessNameController?.dispose();
+    _invoiceAddressController?.dispose();
+    _invoicePhoneController?.dispose();
+    _invoiceEmailController?.dispose();
+    _invoiceWebsiteController?.dispose();
+    super.dispose();
+  }
+
+  TextEditingController get _businessNameController {
+    return _invoiceBusinessNameController ??= TextEditingController(
+      text: ref.read(invoiceBusinessDetailsProvider).businessName,
+    );
+  }
+
+  TextEditingController get _addressController {
+    return _invoiceAddressController ??= TextEditingController(
+      text: ref.read(invoiceBusinessDetailsProvider).address,
+    );
+  }
+
+  TextEditingController get _phoneController {
+    return _invoicePhoneController ??= TextEditingController(
+      text: ref.read(invoiceBusinessDetailsProvider).phone,
+    );
+  }
+
+  TextEditingController get _emailController {
+    return _invoiceEmailController ??= TextEditingController(
+      text: ref.read(invoiceBusinessDetailsProvider).email,
+    );
+  }
+
+  TextEditingController get _websiteController {
+    return _invoiceWebsiteController ??= TextEditingController(
+      text: ref.read(invoiceBusinessDetailsProvider).website,
+    );
+  }
+
+  Future<void> _logout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Logout'),
+          content: const Text('Are you sure you want to logout?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Logout'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldLogout != true) {
+      return;
+    }
+
+    try {
+      await ref.read(firebaseAuthServiceProvider).logout();
+      if (!mounted) {
+        return;
+      }
+      context.go('/login');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Logout failed: $error')));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final themeMode = ref.watch(themeModeProvider);
     final invoicePolicySections = ref.watch(invoicePolicySectionsProvider);
     final invoiceLogoBytes = ref.watch(invoiceLogoBytesProvider);
+    final invoiceBusinessDetails = ref.watch(invoiceBusinessDetailsProvider);
+    final savedGeminiApiKey = ref.watch(geminiApiKeyProvider);
+    const envGeminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
+    final hasGeminiKey =
+        savedGeminiApiKey.trim().isNotEmpty ||
+        envGeminiApiKey.trim().isNotEmpty;
     final textTheme = Theme.of(context).textTheme;
+    final authUser = ref.watch(authStateProvider).valueOrNull;
+    final currentEmail = authUser?.email ?? '(no email on account)';
 
     return SingleChildScrollView(
       child: Column(
@@ -86,6 +194,122 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Text('Account', style: textTheme.titleLarge),
+                const SizedBox(height: 6),
+                Text(
+                  'Sign out from your current account.',
+                  style: textTheme.bodyMedium?.copyWith(color: AppTheme.muted),
+                ),
+                const SizedBox(height: 10),
+                Text('Currently logged in', style: textTheme.labelLarge),
+                const SizedBox(height: 6),
+                SelectableText(
+                  currentEmail,
+                  style: textTheme.bodyLarge?.copyWith(fontFamily: 'monospace'),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: _logout,
+                  icon: const Icon(Icons.logout_rounded),
+                  label: const Text('Logout'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          GlassPanel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('AI (Gemini Online)', style: textTheme.titleLarge),
+                const SizedBox(height: 6),
+                Text(
+                  'Enable online AI prompt understanding using Gemini. When no key is available or internet fails, invoices screen uses offline fallback automatically.',
+                  style: textTheme.bodyMedium?.copyWith(color: AppTheme.muted),
+                ),
+                const SizedBox(height: 10),
+                Chip(
+                  avatar: Icon(
+                    hasGeminiKey
+                        ? Icons.cloud_done_rounded
+                        : Icons.cloud_off_rounded,
+                    color: hasGeminiKey ? AppTheme.success : AppTheme.warning,
+                    size: 18,
+                  ),
+                  label: Text(
+                    hasGeminiKey
+                        ? 'Gemini online is enabled'
+                        : 'Gemini key missing. Offline fallback only',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _geminiApiKeyController,
+                  obscureText: !_showGeminiApiKey,
+                  decoration: InputDecoration(
+                    labelText: 'Gemini API Key',
+                    hintText: 'Paste your Gemini API key',
+                    suffixIcon: IconButton(
+                      onPressed: () {
+                        setState(() {
+                          _showGeminiApiKey = !_showGeminiApiKey;
+                        });
+                      },
+                      icon: Icon(
+                        _showGeminiApiKey
+                            ? Icons.visibility_off_rounded
+                            : Icons.visibility_rounded,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        final key = _geminiApiKeyController.text.trim();
+                        ref.read(geminiApiKeyProvider.notifier).setKey(key);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              key.isEmpty
+                                  ? 'Gemini key cleared. Offline fallback active.'
+                                  : 'Gemini key saved. Online AI is ready.',
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.save_rounded),
+                      label: const Text('Save Key'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        _geminiApiKeyController.clear();
+                        ref.read(geminiApiKeyProvider.notifier).clearKey();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Gemini key removed. Offline fallback active.',
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      label: const Text('Clear Key'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          GlassPanel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(
                   'Backup & Restore (Local File)',
                   style: textTheme.titleLarge,
@@ -131,6 +355,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               .read(localBackupServiceProvider)
                               .restoreFromBackupFile();
                           ref.invalidate(invoiceLogoBytesProvider);
+                          ref.invalidate(invoiceBusinessDetailsProvider);
                           ref.invalidate(invoicePolicySectionsProvider);
                           ref.invalidate(enabledServicesProvider);
                           ref.invalidate(customServiceProfilesProvider);
@@ -163,6 +388,93 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       },
                       icon: const Icon(Icons.upload_file_rounded),
                       label: const Text('Restore From File'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          GlassPanel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Invoice Business Details', style: textTheme.titleLarge),
+                const SizedBox(height: 8),
+                Text(
+                  'These details are printed on every generated quotation/invoice PDF.',
+                  style: textTheme.bodyMedium?.copyWith(color: AppTheme.muted),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _businessNameController,
+                  decoration: const InputDecoration(labelText: 'Business Name'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _addressController,
+                  minLines: 2,
+                  maxLines: 3,
+                  decoration: const InputDecoration(labelText: 'Address'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _phoneController,
+                  decoration: const InputDecoration(labelText: 'Phone No'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _emailController,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _websiteController,
+                  decoration: const InputDecoration(labelText: 'Website'),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        ref
+                            .read(invoiceBusinessDetailsProvider.notifier)
+                            .setDetails(
+                              InvoiceBusinessDetails(
+                                businessName: _businessNameController.text
+                                    .trim(),
+                                address: _addressController.text.trim(),
+                                phone: _phoneController.text.trim(),
+                                email: _emailController.text.trim(),
+                                website: _websiteController.text.trim(),
+                              ),
+                            );
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Invoice business details saved successfully.',
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.save_rounded),
+                      label: const Text('Save Details'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        _businessNameController.text =
+                            invoiceBusinessDetails.businessName;
+                        _addressController.text =
+                            invoiceBusinessDetails.address;
+                        _phoneController.text = invoiceBusinessDetails.phone;
+                        _emailController.text = invoiceBusinessDetails.email;
+                        _websiteController.text =
+                            invoiceBusinessDetails.website;
+                      },
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Reload Saved'),
                     ),
                   ],
                 ),

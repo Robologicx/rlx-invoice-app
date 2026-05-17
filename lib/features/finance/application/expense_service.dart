@@ -1,45 +1,28 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive/hive.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/models/erp_models.dart';
-import '../../../database/local_database.dart';
+import '../../../core/services/firebase_auth_service.dart';
 
 class ExpenseService {
-  Future<Box<Map>?> _ensureExpenseBox() async {
-    try {
-      if (!Hive.isBoxOpen(LocalDatabase.expensesBox)) {
-        await Hive.openBox<Map>(LocalDatabase.expensesBox);
-      }
-      return Hive.box<Map>(LocalDatabase.expensesBox);
-    } catch (_) {
-      return null;
-    }
+  final FirebaseFirestore _firestore;
+
+  ExpenseService({FirebaseFirestore? firestore})
+    : _firestore = firestore ?? FirebaseFirestore.instance;
+
+  String? _activeUserId() => FirebaseAuth.instance.currentUser?.uid;
+
+  CollectionReference<Map<String, dynamic>> _expenseCollection(String userId) {
+    return _firestore.collection('users').doc(userId).collection('expenses');
   }
 
-  Future<Box<Map>?> _ensureFixedBox() async {
-    try {
-      if (!Hive.isBoxOpen(LocalDatabase.fixedMonthlyExpensesBox)) {
-        await Hive.openBox<Map>(LocalDatabase.fixedMonthlyExpensesBox);
-      }
-      return Hive.box<Map>(LocalDatabase.fixedMonthlyExpensesBox);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Box<Map>? get _box {
-    if (!Hive.isBoxOpen(LocalDatabase.expensesBox)) {
-      return null;
-    }
-    return Hive.box<Map>(LocalDatabase.expensesBox);
-  }
-
-  Box<Map>? get _fixedBox {
-    if (!Hive.isBoxOpen(LocalDatabase.fixedMonthlyExpensesBox)) {
-      return null;
-    }
-    return Hive.box<Map>(LocalDatabase.fixedMonthlyExpensesBox);
+  CollectionReference<Map<String, dynamic>> _fixedCollection(String userId) {
+    return _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('fixed_monthly_expenses');
   }
 
   Future<bool> addExpense({
@@ -51,15 +34,18 @@ class ExpenseService {
     bool skipIfIdExists = false,
     String note = '',
   }) async {
-    final box = await _ensureExpenseBox();
-    if (box == null) {
+    final userId = _activeUserId();
+    if (userId == null || userId.isEmpty) {
       return false;
     }
 
     final resolvedId =
         customId ?? 'exp_${DateTime.now().microsecondsSinceEpoch}';
-    if (skipIfIdExists && box.containsKey(resolvedId)) {
-      return false;
+    if (skipIfIdExists) {
+      final existing = await _expenseCollection(userId).doc(resolvedId).get();
+      if (existing.exists) {
+        return false;
+      }
     }
 
     final now = DateTime.now();
@@ -73,24 +59,33 @@ class ExpenseService {
       note: note.trim(),
     );
 
-    await box.put(record.id, record.toMap());
+    await _expenseCollection(userId).doc(record.id).set(record.toMap());
     return true;
   }
 
   Future<void> deleteExpense(String id) async {
-    final box = await _ensureExpenseBox();
-    if (box == null) {
+    final userId = _activeUserId();
+    if (userId == null || userId.isEmpty) {
       return;
     }
-    await box.delete(id);
+    await _expenseCollection(userId).doc(id).delete();
   }
 
   Future<void> clearAll() async {
-    final box = await _ensureExpenseBox();
-    if (box == null) {
+    final userId = _activeUserId();
+    if (userId == null || userId.isEmpty) {
       return;
     }
-    await box.clear();
+
+    final snapshot = await _expenseCollection(userId).get();
+    if (snapshot.docs.isEmpty) {
+      return;
+    }
+    final batch = _firestore.batch();
+    for (final doc in snapshot.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
   }
 
   Future<void> upsertFixedMonthlyExpense({
@@ -101,8 +96,8 @@ class ExpenseService {
     String note = '',
     bool isActive = true,
   }) async {
-    final box = await _ensureFixedBox();
-    if (box == null) {
+    final userId = _activeUserId();
+    if (userId == null || userId.isEmpty) {
       return;
     }
 
@@ -117,71 +112,85 @@ class ExpenseService {
       isActive: isActive,
     );
 
-    await box.put(record.id, record.toMap());
+    await _fixedCollection(userId).doc(record.id).set(record.toMap());
   }
 
   Future<void> deleteFixedMonthlyExpense(String id) async {
-    final box = await _ensureFixedBox();
-    if (box == null) {
+    final userId = _activeUserId();
+    if (userId == null || userId.isEmpty) {
       return;
     }
-    await box.delete(id);
+    await _fixedCollection(userId).doc(id).delete();
   }
 
   Future<void> setFixedMonthlyExpenseActive(String id, bool isActive) async {
-    final box = await _ensureFixedBox();
-    if (box == null) {
+    final userId = _activeUserId();
+    if (userId == null || userId.isEmpty) {
       return;
     }
-    final raw = box.get(id);
-    if (raw == null) {
+    final raw = await _fixedCollection(userId).doc(id).get();
+    if (!raw.exists) {
       return;
     }
-    final current = FixedMonthlyExpense.fromMap(raw);
-    await box.put(
-      id,
-      FixedMonthlyExpense(
-        id: current.id,
-        title: current.title,
-        amount: current.amount,
-        category: current.category,
-        createdAt: current.createdAt,
-        note: current.note,
-        isActive: isActive,
-      ).toMap(),
-    );
+    final current = FixedMonthlyExpense.fromMap(raw.data()!);
+    await _fixedCollection(userId)
+        .doc(id)
+        .set(
+          FixedMonthlyExpense(
+            id: current.id,
+            title: current.title,
+            amount: current.amount,
+            category: current.category,
+            createdAt: current.createdAt,
+            note: current.note,
+            isActive: isActive,
+          ).toMap(),
+        );
   }
 
   List<FixedMonthlyExpense> allFixedMonthlyExpenses() {
-    final box = _fixedBox;
-    if (box == null) {
-      return const [];
-    }
-
-    return box.values
-        .map((value) => FixedMonthlyExpense.fromMap(value))
-        .toList()
-      ..sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+    return const [];
   }
 
   Stream<List<FixedMonthlyExpense>> watchFixedMonthlyExpenses() async* {
-    final box = _fixedBox;
-    if (box == null) {
+    final userId = _activeUserId();
+    if (userId == null || userId.isEmpty) {
       yield const [];
       return;
     }
 
-    yield allFixedMonthlyExpenses();
-    await for (final _ in box.watch()) {
-      yield allFixedMonthlyExpenses();
+    yield* _fixedCollection(userId).snapshots().map(
+      (snapshot) =>
+          snapshot.docs
+              .map((doc) => FixedMonthlyExpense.fromMap(doc.data()))
+              .toList()
+            ..sort(
+              (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+            ),
+    );
+  }
+
+  Future<List<FixedMonthlyExpense>> _fetchFixedMonthlyExpenses() async {
+    final userId = _activeUserId();
+    if (userId == null || userId.isEmpty) {
+      return const [];
     }
+
+    final snapshot = await _fixedCollection(userId).get();
+    final records = snapshot.docs
+        .map((doc) => FixedMonthlyExpense.fromMap(doc.data()))
+        .toList();
+    records.sort(
+      (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+    );
+    return records;
   }
 
   Future<int> syncFixedExpensesForMonth({DateTime? month}) async {
     final targetMonth = month ?? DateTime.now();
     final monthKey = DateFormat('yyyyMM').format(targetMonth);
     final expenseDate = DateTime(targetMonth.year, targetMonth.month, 1);
-    final fixedExpenses = allFixedMonthlyExpenses()
+    final fixedExpenses = (await _fetchFixedMonthlyExpenses())
         .where((item) => item.isActive && item.amount > 0)
         .toList();
 
@@ -205,30 +214,26 @@ class ExpenseService {
   }
 
   List<ExpenseRecord> all() {
-    final box = _box;
-    if (box == null) {
-      return const [];
-    }
-
-    return box.values.map((value) => ExpenseRecord.fromMap(value)).toList()
-      ..sort((a, b) => b.expenseDate.compareTo(a.expenseDate));
+    return const [];
   }
 
   Stream<List<ExpenseRecord>> watchAll() async* {
-    final box = _box;
-    if (box == null) {
+    final userId = _activeUserId();
+    if (userId == null || userId.isEmpty) {
       yield const [];
       return;
     }
 
-    yield all();
-    await for (final _ in box.watch()) {
-      yield all();
-    }
+    yield* _expenseCollection(userId).snapshots().map(
+      (snapshot) =>
+          snapshot.docs.map((doc) => ExpenseRecord.fromMap(doc.data())).toList()
+            ..sort((a, b) => b.expenseDate.compareTo(a.expenseDate)),
+    );
   }
 }
 
 final expenseServiceProvider = Provider<ExpenseService>((ref) {
+  ref.watch(currentUserProvider);
   return ExpenseService();
 });
 

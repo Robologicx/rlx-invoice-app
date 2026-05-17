@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import '../../../app/theme/app_theme.dart';
 import '../../../core/models/erp_models.dart';
+import '../../../core/services/firebase_auth_service.dart';
 import '../../../shared/presentation/widgets/glass_panel.dart';
 import '../../../shared/presentation/widgets/metric_card.dart';
 import '../../finance/application/finance_report_provider.dart';
@@ -19,6 +20,14 @@ class DashboardScreen extends ConsumerWidget {
     final recordsAsync = ref.watch(invoiceHistoryProvider);
     final financeAsync = ref.watch(financeSummaryProvider);
     final inventoryState = ref.watch(inventoryProvider);
+    final authUser = ref.watch(authStateProvider).valueOrNull;
+    final loginName =
+        (authUser?.displayName != null &&
+            authUser!.displayName!.trim().isNotEmpty)
+        ? authUser.displayName!.trim()
+        : (authUser?.email?.trim().isNotEmpty ?? false)
+        ? authUser!.email!.trim()
+        : 'Unknown user';
     final textTheme = Theme.of(context).textTheme;
     final screenWidth = MediaQuery.sizeOf(context).width;
     final metricWidth = screenWidth < 640 ? screenWidth - 40 : 280.0;
@@ -35,6 +44,14 @@ class DashboardScreen extends ConsumerWidget {
         children: [
           Text('Workshop Command Center', style: textTheme.headlineLarge),
           const SizedBox(height: 8),
+          Text(
+            'Logged in as: $loginName',
+            style: textTheme.bodyMedium?.copyWith(
+              color: AppTheme.accent,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
           Text(
             'Manage quotations, template-driven invoices, project delivery, and stock from one industrial-grade workspace.',
             style: textTheme.bodyLarge?.copyWith(color: AppTheme.muted),

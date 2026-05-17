@@ -128,7 +128,7 @@ class QuotationController extends StateNotifier<QuotationState> {
            selectedProfileId: profiles.first.template.id,
            selectedPackageId: profiles.first.packages.first.id,
            clientName: '',
-           runningFeet: '120',
+           runningFeet: _defaultQuantityText(profiles.first.packages.first),
            systemType:
                profiles.first.packages.first.systemVariants.keys.firstOrNull ??
                '',
@@ -155,6 +155,17 @@ class QuotationController extends StateNotifier<QuotationState> {
   );
   final DateFormat _date = DateFormat('dd MMM yyyy');
 
+  static String _defaultQuantityText(ServicePackage package) {
+    final hasQtyInput =
+        package.quantityLabel.isNotEmpty && package.rateRules.isNotEmpty;
+    if (!hasQtyInput || package.defaultQuantity <= 0) {
+      return '';
+    }
+    return package.defaultQuantity.truncateToDouble() == package.defaultQuantity
+        ? package.defaultQuantity.toInt().toString()
+        : package.defaultQuantity.toString();
+  }
+
   List<ServiceProfile> get profiles => _profiles;
 
   void setCategory(ServiceCategory category) {
@@ -170,6 +181,7 @@ class QuotationController extends StateNotifier<QuotationState> {
       packageProductQuantities: const <String, double>{},
       optionalItemQuantities: const <String, double>{},
       manualProducts: const [],
+      runningFeet: _defaultQuantityText(firstPackage),
       clearGeneratedQuotation: true,
     );
   }
@@ -187,6 +199,7 @@ class QuotationController extends StateNotifier<QuotationState> {
       packageProductQuantities: const <String, double>{},
       optionalItemQuantities: const <String, double>{},
       manualProducts: const [],
+      runningFeet: _defaultQuantityText(firstPackage),
       clearGeneratedQuotation: true,
     );
   }
@@ -204,6 +217,7 @@ class QuotationController extends StateNotifier<QuotationState> {
       packageProductQuantities: const <String, double>{},
       optionalItemQuantities: const <String, double>{},
       manualProducts: const [],
+      runningFeet: _defaultQuantityText(selectedPackage),
       clearGeneratedQuotation: true,
     );
   }
@@ -254,6 +268,20 @@ class QuotationController extends StateNotifier<QuotationState> {
       }
     }
 
+    // Extract manual products - items that are not in the package
+    final systemType = document.placeholderValues['system_type'] ?? '';
+    final packageProductNames = {
+      ...package.products.map((p) => p.name),
+      ...package.optionalItems.map((o) => o.name),
+      if (systemType.isNotEmpty) systemType, // Skip system type if present
+    };
+    final manualProducts = <QuotationLine>[];
+    for (final line in document.lineItems) {
+      if (!packageProductNames.contains(line.name)) {
+        manualProducts.add(line);
+      }
+    }
+
     state = state.copyWith(
       category: document.category,
       selectedProfileId: profile.template.id,
@@ -267,7 +295,7 @@ class QuotationController extends StateNotifier<QuotationState> {
       excludedPackageProducts: excludedProducts,
       packageProductQuantities: packageQuantities,
       optionalItemQuantities: optionalQuantities,
-      manualProducts: const [],
+      manualProducts: manualProducts,
       generatedQuotation: document,
     );
   }
@@ -301,8 +329,12 @@ class QuotationController extends StateNotifier<QuotationState> {
     }
 
     if (parsed.quantity != null) {
-      if (parsed.category == ServiceCategory.electricFence &&
-          _usesRunningFeet(profile)) {
+      final activePackage = profile.packages.firstWhere(
+        (item) => item.id == state.selectedPackageId,
+        orElse: () => profile.packages.first,
+      );
+      if (activePackage.quantityLabel.isNotEmpty &&
+          activePackage.rateRules.isNotEmpty) {
         updateRunningFeet(parsed.quantity!.toStringAsFixed(0));
       }
 
@@ -538,13 +570,41 @@ class QuotationController extends StateNotifier<QuotationState> {
     state = state.copyWith(manualProducts: next, clearGeneratedQuotation: true);
   }
 
+  void updateManualProductAt(
+    int index, {
+    required String name,
+    required double quantity,
+    required double unitPrice,
+    String unit = 'unit',
+  }) {
+    if (index < 0 || index >= state.manualProducts.length) {
+      return;
+    }
+    final trimmed = name.trim();
+    final safeUnit = unit.trim().isEmpty ? 'unit' : unit.trim();
+    if (trimmed.isEmpty || quantity <= 0 || unitPrice < 0) {
+      return;
+    }
+
+    final next = [...state.manualProducts];
+    next[index] = QuotationLine(
+      name: trimmed,
+      quantity: quantity,
+      unitPrice: unitPrice,
+      unit: safeUnit,
+    );
+    state = state.copyWith(manualProducts: next, clearGeneratedQuotation: true);
+  }
+
   Future<void> generateQuotation() async {
     final profile = _selectedProfile(state.selectedProfileId);
     final selectedPackage = profile.packages.firstWhere(
       (item) => item.id == state.selectedPackageId,
     );
-    final usesRunningFeet = _usesRunningFeet(profile);
-    final runningFeet = usesRunningFeet
+    final usesQtyInput =
+        selectedPackage.quantityLabel.isNotEmpty &&
+        selectedPackage.rateRules.isNotEmpty;
+    final inputQty = usesQtyInput
         ? (double.tryParse(state.runningFeet) ?? 0)
         : 0.0;
     final now = DateTime.now();
@@ -553,17 +613,22 @@ class QuotationController extends StateNotifier<QuotationState> {
         : state.clientName.trim();
 
     final lineItems = <QuotationLine>[];
-    final hardwareRate = usesRunningFeet
-        ? _ruleEngine.electricFenceRatePerFeet(runningFeet)
+    final hardwareRate = selectedPackage.rateRules.isNotEmpty
+        ? _computeRateFromRules(selectedPackage.rateRules, inputQty)
         : selectedPackage.hardwareRate;
 
-    if (hardwareRate > 0 && runningFeet > 0) {
+    final qtyLabel = selectedPackage.quantityLabel;
+
+    if (hardwareRate > 0 &&
+        inputQty > 0 &&
+        qtyLabel.isNotEmpty &&
+        selectedPackage.rateRules.isNotEmpty) {
       lineItems.add(
         QuotationLine(
-          name: 'Fence Hardware',
-          quantity: runningFeet,
+          name: qtyLabel,
+          quantity: inputQty,
           unitPrice: hardwareRate,
-          unit: 'ft',
+          unit: 'unit',
         ),
       );
     }
@@ -600,28 +665,6 @@ class QuotationController extends StateNotifier<QuotationState> {
 
     lineItems.addAll(state.manualProducts);
 
-    if (selectedPackage.configurationCharge > 0) {
-      lineItems.add(
-        QuotationLine(
-          name: 'Configuration Charges',
-          quantity: 1,
-          unitPrice: selectedPackage.configurationCharge,
-          unit: 'job',
-        ),
-      );
-    }
-
-    if (selectedPackage.installationCharge > 0) {
-      lineItems.add(
-        QuotationLine(
-          name: 'Installation Charges',
-          quantity: 1,
-          unitPrice: selectedPackage.installationCharge,
-          unit: 'job',
-        ),
-      );
-    }
-
     final selectedOptionals = selectedPackage.optionalItems
         .where(
           (item) => state.selectedOptionalIds.contains(item.id) && item.enabled,
@@ -653,6 +696,8 @@ class QuotationController extends StateNotifier<QuotationState> {
       'quotation_no': quotationNo,
       'date': _date.format(now),
       'running_feet': state.runningFeet,
+      'quantity_label': selectedPackage.quantityLabel,
+      'quantity_description': selectedPackage.quantityDescription,
       'system_type': state.systemType,
       'subtotal': _currency.format(subtotal),
       'grand_total': _currency.format(subtotal),
@@ -818,6 +863,8 @@ class QuotationController extends StateNotifier<QuotationState> {
       'quotation_no': quotationNo,
       'date': _date.format(now),
       'running_feet': state.runningFeet,
+      'quantity_label': selectedPackage.quantityLabel,
+      'quantity_description': selectedPackage.quantityDescription,
       'system_type': state.systemType,
       'subtotal': _currency.format(subtotal),
       'grand_total': _currency.format(subtotal),
@@ -883,9 +930,11 @@ class QuotationController extends StateNotifier<QuotationState> {
     );
   }
 
-  bool _usesRunningFeet(ServiceProfile profile) {
-    return profile.category == ServiceCategory.electricFence &&
-        !profile.template.id.startsWith('custom_template_');
+  double _computeRateFromRules(List<RateRule> rules, double qty) {
+    for (final rule in rules) {
+      if (qty <= rule.upTo) return rule.rate;
+    }
+    return rules.last.rate;
   }
 
   ServicePackage? _matchPackage(ServiceProfile profile, String packageHint) {

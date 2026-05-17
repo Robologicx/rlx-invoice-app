@@ -10,7 +10,7 @@ class ClientsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final clients = ref.watch(clientsProvider);
+    final clientsAsync = ref.watch(clientsProvider);
     final textTheme = Theme.of(context).textTheme;
 
     return SingleChildScrollView(
@@ -24,44 +24,93 @@ class ClientsScreen extends ConsumerWidget {
             style: textTheme.bodyLarge?.copyWith(color: AppTheme.muted),
           ),
           const SizedBox(height: 24),
-          ...clients.map(
-            (client) => Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: GlassPanel(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(client.name, style: textTheme.titleLarge),
+          clientsAsync.when(
+            data: (clients) {
+              if (clients.isEmpty) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Text(
+                      'No clients yet. Create a new client to get started.',
+                      style: textTheme.bodyLarge?.copyWith(
+                        color: AppTheme.muted,
+                      ),
+                    ),
+                  ),
+                );
+              }
+              return Column(
+                children: [
+                  ...clients.map(
+                    (client) => Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: GlassPanel(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    client.name,
+                                    style: textTheme.titleLarge,
+                                  ),
+                                ),
+                                Chip(label: Text(client.paymentStatus)),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              client.projectType,
+                              style: textTheme.bodyLarge,
+                            ),
+                            Text(
+                              client.phone,
+                              style: textTheme.bodyMedium?.copyWith(
+                                color: AppTheme.muted,
+                              ),
+                            ),
+                            Text(
+                              client.address,
+                              style: textTheme.bodyMedium?.copyWith(
+                                color: AppTheme.muted,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Previous history',
+                              style: textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              client.previousHistory,
+                              style: textTheme.bodyMedium?.copyWith(
+                                color: AppTheme.muted,
+                              ),
+                            ),
+                          ],
                         ),
-                        Chip(label: Text(client.paymentStatus)),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(client.projectType, style: textTheme.bodyLarge),
-                    Text(
-                      client.phone,
-                      style: textTheme.bodyMedium?.copyWith(
-                        color: AppTheme.muted,
                       ),
                     ),
-                    Text(
-                      client.address,
-                      style: textTheme.bodyMedium?.copyWith(
-                        color: AppTheme.muted,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text('Previous history', style: textTheme.titleLarge),
-                    const SizedBox(height: 4),
-                    Text(
-                      client.previousHistory,
-                      style: textTheme.bodyMedium?.copyWith(
-                        color: AppTheme.muted,
-                      ),
-                    ),
+                  ),
+                ],
+              );
+            },
+            loading: () => Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: CircularProgressIndicator(),
+              ),
+            ),
+            error: (error, stackTrace) => Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.error_outline, size: 48, color: AppTheme.error),
+                    const SizedBox(height: 16),
+                    Text('Failed to load clients', style: textTheme.bodyLarge),
                   ],
                 ),
               ),

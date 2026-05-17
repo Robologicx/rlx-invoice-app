@@ -893,7 +893,26 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
     final productUnitCtrl = TextEditingController(text: 'unit');
     final optionalNameCtrl = TextEditingController();
     final optionalPriceCtrl = TextEditingController();
-
+    final systemVariants = Map<String, double>.from(package.systemVariants);
+    final variantNameCtrl = TextEditingController();
+    final variantPriceCtrl = TextEditingController();
+    final quantityLabelCtrl = TextEditingController(
+      text: package.quantityLabel,
+    );
+    final quantityDescriptionCtrl = TextEditingController(
+      text: package.quantityDescription,
+    );
+    final defaultQtyCtrl = TextEditingController(
+      text: package.defaultQuantity > 0
+          ? (package.defaultQuantity.truncateToDouble() ==
+                    package.defaultQuantity
+                ? package.defaultQuantity.toInt().toString()
+                : package.defaultQuantity.toString())
+          : '',
+    );
+    final rateRules = List<RateRule>.from(package.rateRules);
+    final ruleQtyCtrl = TextEditingController();
+    final ruleRateCtrl = TextEditingController();
     await showDialog<void>(
       context: context,
       builder: (context) {
@@ -1068,6 +1087,185 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
                           label: const Text('Add Optional Item'),
                         ),
                       ),
+                      const Divider(height: 28),
+                      const Text('System Variants'),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Each variant appears as a selectable system type on the invoice screen.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 8),
+                      ...systemVariants.entries.map(
+                        (entry) => ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(entry.key),
+                          subtitle: Text(
+                            'PKR ${entry.value.toStringAsFixed(0)}',
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () => setDialogState(() {
+                              systemVariants.remove(entry.key);
+                            }),
+                          ),
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: TextField(
+                              controller: variantNameCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Variant Name (e.g. Nemtek)',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: variantPriceCtrl,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              decoration: const InputDecoration(
+                                labelText: 'Price (PKR)',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () {
+                            final name = variantNameCtrl.text.trim();
+                            final price =
+                                double.tryParse(variantPriceCtrl.text) ?? 0;
+                            if (name.isEmpty) return;
+                            setDialogState(() {
+                              systemVariants[name] = price;
+                              variantNameCtrl.clear();
+                              variantPriceCtrl.clear();
+                            });
+                          },
+                          icon: const Icon(Icons.add_rounded),
+                          label: const Text('Add Variant'),
+                        ),
+                      ),
+                      const Divider(height: 28),
+                      const Text('Quantity Input'),
+                      const SizedBox(height: 4),
+                      Text(
+                        'If set, a quantity field appears on the invoice screen (e.g. "Running Feet"). Leave empty to hide.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: quantityLabelCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Quantity Label (e.g. Running Feet)',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: quantityDescriptionCtrl,
+                        minLines: 2,
+                        maxLines: 4,
+                        keyboardType: TextInputType.multiline,
+                        decoration: const InputDecoration(
+                          labelText: 'Quantity Description (shown under input)',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: defaultQtyCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Default Quantity (e.g. 40)',
+                        ),
+                      ),
+                      const Divider(height: 28),
+                      const Text('Rate Rules'),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Conditional rates based on quantity. Leave empty for flat rate. Rules are evaluated top-to-bottom.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 8),
+                      ...rateRules.asMap().entries.map(
+                        (entry) => ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            entry.value.upTo == double.infinity
+                                ? 'Otherwise → PKR ${entry.value.rate.toStringAsFixed(0)} / unit'
+                                : 'Up to ${entry.value.upTo.toStringAsFixed(0)} → PKR ${entry.value.rate.toStringAsFixed(0)} / unit',
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () => setDialogState(() {
+                              rateRules.removeAt(entry.key);
+                            }),
+                          ),
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: ruleQtyCtrl,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              decoration: const InputDecoration(
+                                labelText: 'Up to Qty (blank = catch-all)',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: ruleRateCtrl,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              decoration: const InputDecoration(
+                                labelText: 'Rate per unit (PKR)',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () {
+                            final rate =
+                                double.tryParse(ruleRateCtrl.text) ?? 0;
+                            if (rate <= 0) return;
+                            final upToText = ruleQtyCtrl.text.trim();
+                            final upTo = upToText.isEmpty
+                                ? double.infinity
+                                : (double.tryParse(upToText) ??
+                                      double.infinity);
+                            setDialogState(() {
+                              rateRules.add(RateRule(upTo: upTo, rate: rate));
+                              rateRules.sort(
+                                (a, b) => a.upTo.compareTo(b.upTo),
+                              );
+                              ruleQtyCtrl.clear();
+                              ruleRateCtrl.clear();
+                            });
+                          },
+                          icon: const Icon(Icons.add_rounded),
+                          label: const Text('Add Rule'),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1085,6 +1283,13 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
                           packageId: package.id,
                           products: products,
                           optionals: optionals,
+                          systemVariants: systemVariants,
+                          quantityLabel: quantityLabelCtrl.text.trim(),
+                          quantityDescription: quantityDescriptionCtrl.text
+                              .trim(),
+                          defaultQuantity:
+                              double.tryParse(defaultQtyCtrl.text.trim()) ?? 0,
+                          rateRules: rateRules,
                         );
                     Navigator.of(context).pop();
                     ScaffoldMessenger.of(this.context).showSnackBar(
@@ -1100,12 +1305,9 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
       },
     );
 
-    productNameCtrl.dispose();
-    productQtyCtrl.dispose();
-    productPriceCtrl.dispose();
-    productUnitCtrl.dispose();
-    optionalNameCtrl.dispose();
-    optionalPriceCtrl.dispose();
+    // Intentionally not disposing dialog-local controllers here.
+    // On Flutter web, dialog teardown can still reference controller listeners
+    // for one frame and trigger "used after dispose" assertions.
   }
 
   @override
@@ -1470,10 +1672,17 @@ class _PackageList extends ConsumerWidget {
             products: edits.productsByPackage[pkg.id] ?? pkg.products,
             optionalItems:
                 edits.optionalsByPackage[pkg.id] ?? pkg.optionalItems,
-            systemVariants: pkg.systemVariants,
+            systemVariants:
+                edits.systemVariantsByPackage[pkg.id] ?? pkg.systemVariants,
             hardwareRate: pkg.hardwareRate,
-            configurationCharge: pkg.configurationCharge,
-            installationCharge: pkg.installationCharge,
+            quantityLabel:
+                edits.quantityLabelByPackage[pkg.id] ?? pkg.quantityLabel,
+            quantityDescription:
+                edits.quantityDescriptionByPackage[pkg.id] ??
+                pkg.quantityDescription,
+            defaultQuantity:
+                edits.defaultQuantityByPackage[pkg.id] ?? pkg.defaultQuantity,
+            rateRules: edits.rateRulesByPackage[pkg.id] ?? pkg.rateRules,
             calculationNotes: pkg.calculationNotes,
           );
         }).toList();

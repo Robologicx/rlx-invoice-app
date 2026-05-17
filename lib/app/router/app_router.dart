@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/services/firebase_auth_service.dart';
+import '../../features/auth/presentation/login_screen.dart';
 import '../../features/dashboard/presentation/dashboard_screen.dart';
 import '../../features/finance/presentation/finance_screen.dart';
 import '../../features/history/presentation/invoice_history_screen.dart';
@@ -12,9 +14,30 @@ import '../../features/team/presentation/team_screen.dart';
 import '../../shared/presentation/widgets/app_shell.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
+  final authState = ref.watch(authStateProvider);
+
   return GoRouter(
     initialLocation: '/',
+    redirect: (context, state) {
+      final isLoggedIn = authState.maybeWhen(
+        data: (user) => user != null,
+        orElse: () => false,
+      );
+
+      final isLogin = state.matchedLocation == '/login';
+
+      if (!isLoggedIn && !isLogin) {
+        return '/login';
+      }
+
+      if (isLoggedIn && isLogin) {
+        return '/';
+      }
+
+      return null;
+    },
     routes: [
+      GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(
         path: '/',
         builder: (context, state) =>

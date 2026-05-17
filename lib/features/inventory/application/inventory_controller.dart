@@ -1,8 +1,11 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 
 import '../../../core/models/erp_models.dart';
-import '../../../database/local_database.dart';
+import '../../../core/services/firebase_auth_service.dart';
 
 class InventoryState {
   const InventoryState({required this.items, required this.movements});
@@ -10,10 +13,13 @@ class InventoryState {
   final List<InventoryItem> items;
   final List<InventoryMovement> movements;
 
-  int get totalStock => items.fold<int>(0, (sum, item) => sum + item.quantity);
+  int get totalStock =>
+      items.fold<int>(0, (total, item) => total + item.quantity);
   int get lowStockCount => items.where((item) => item.isLowStock).length;
-  double get totalValue =>
-      items.fold<double>(0, (sum, item) => sum + (item.quantity * item.price));
+  double get totalValue => items.fold<double>(
+    0,
+    (total, item) => total + (item.quantity * item.price),
+  );
 
   InventoryState copyWith({
     List<InventoryItem>? items,
@@ -27,81 +33,74 @@ class InventoryState {
 }
 
 class InventoryController extends StateNotifier<InventoryState> {
-  InventoryController() : super(_loadState());
+  InventoryController()
+    : super(const InventoryState(items: [], movements: [])) {
+    _bootstrap();
+  }
 
-  static InventoryState _loadState() {
-    final itemsBox = localBoxOrNull(LocalDatabase.inventoryItemsBox);
-    final movementsBox = localBoxOrNull(LocalDatabase.inventoryMovementsBox);
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _subscription;
 
-    final items = <InventoryItem>[];
-    if (itemsBox != null) {
-      for (final entry in itemsBox.toMap().entries) {
-        items.add(InventoryItem.fromMap(entry.value));
-      }
+  static String? _activeUserId() => FirebaseAuth.instance.currentUser?.uid;
+
+  DocumentReference<Map<String, dynamic>>? get _userDoc {
+    final userId = _activeUserId();
+    if (userId == null || userId.isEmpty) {
+      return null;
+    }
+    return _firestore.collection('users').doc(userId);
+  }
+
+  Future<void> _bootstrap() async {
+    final userDoc = _userDoc;
+    if (userDoc == null) {
+      state = const InventoryState(items: [], movements: []);
+      return;
     }
 
-    if (items.isEmpty) {
-      items.addAll(_seedItems());
+    final snapshot = await userDoc.get();
+    final initial = _mapState(snapshot.data());
+    state = initial;
+
+    _subscription = userDoc.snapshots().listen((event) {
+      state = _mapState(event.data());
+    });
+  }
+
+  InventoryState _mapState(Map<String, dynamic>? data) {
+    if (data == null) {
+      return const InventoryState(items: [], movements: []);
     }
 
-    final movements = <InventoryMovement>[];
-    if (movementsBox != null) {
-      final entries = movementsBox.toMap().entries.toList()
-        ..sort((a, b) => a.key.toString().compareTo(b.key.toString()));
-      for (final entry in entries) {
-        movements.add(InventoryMovement.fromMap(entry.value));
-      }
-    }
+    final rawItems = data['inventory'] as List? ?? const [];
+    final rawMovements = data['inventoryMovements'] as List? ?? const [];
 
-    _saveItems(items);
+    final items = rawItems
+        .whereType<Map>()
+        .map((map) => InventoryItem.fromMap(map))
+        .toList();
+    final movements =
+        rawMovements
+            .whereType<Map>()
+            .map((map) => InventoryMovement.fromMap(map))
+            .toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
     return InventoryState(items: items, movements: movements);
   }
 
-  static List<InventoryItem> _seedItems() {
-    return [
-      InventoryItem(
-        id: 'inv_solar_panels',
-        name: 'Solar Panels',
-        quantity: 26,
-        price: 18000,
-        supplier: 'SunNova',
-      ),
-      InventoryItem(
-        id: 'inv_batteries',
-        name: 'Batteries',
-        quantity: 8,
-        price: 85000,
-        supplier: 'VoltEdge',
-      ),
-      InventoryItem(
-        id: 'inv_fence_wire',
-        name: 'Electric Fence Wire',
-        quantity: 12,
-        price: 25000,
-        supplier: 'FenceCore',
-      ),
-      InventoryItem(
-        id: 'inv_cameras',
-        name: 'Cameras',
-        quantity: 42,
-        price: 12500,
-        supplier: 'Dahua Partner',
-      ),
-      InventoryItem(
-        id: 'inv_sensors',
-        name: 'Sensors',
-        quantity: 7,
-        price: 4200,
-        supplier: 'SmartGrid',
-      ),
-      InventoryItem(
-        id: 'inv_switches',
-        name: 'Smart Switches',
-        quantity: 5,
-        price: 6500,
-        supplier: 'SmartGrid',
-      ),
-    ];
+  Future<void> _saveState(InventoryState nextState) async {
+    final userDoc = _userDoc;
+    if (userDoc == null) {
+      return;
+    }
+
+    await userDoc.set({
+      'inventory': nextState.items.map((item) => item.toMap()).toList(),
+      'inventoryMovements': nextState.movements
+          .map((movement) => movement.toMap())
+          .toList(),
+    }, SetOptions(merge: true));
   }
 
   List<InventoryItem> get items => state.items;
@@ -110,7 +109,7 @@ class InventoryController extends StateNotifier<InventoryState> {
   void addItem(InventoryItem item) {
     final next = [...state.items, item];
     state = state.copyWith(items: next);
-    _saveItems(next);
+    _saveState(state);
     _recordMovement(
       itemId: item.id,
       itemName: item.name,
@@ -131,7 +130,7 @@ class InventoryController extends StateNotifier<InventoryState> {
     final next = [...state.items];
     next[index] = updatedItem;
     state = state.copyWith(items: next);
-    _saveItems(next);
+    _saveState(state);
     _recordMovement(
       itemId: updatedItem.id,
       itemName: updatedItem.name,
@@ -159,7 +158,7 @@ class InventoryController extends StateNotifier<InventoryState> {
     }
     final next = state.items.where((entry) => entry.id != itemId).toList();
     state = state.copyWith(items: next);
-    _saveItems(next);
+    _saveState(state);
     _recordMovement(
       itemId: item.id,
       itemName: item.name,
@@ -186,7 +185,7 @@ class InventoryController extends StateNotifier<InventoryState> {
     final next = [...state.items];
     next[index] = updated;
     state = state.copyWith(items: next);
-    _saveItems(next);
+    _saveState(state);
     _recordMovement(
       itemId: itemId,
       itemName: current.name,
@@ -208,7 +207,7 @@ class InventoryController extends StateNotifier<InventoryState> {
     final next = [...state.items];
     next[index] = updated;
     state = state.copyWith(items: next);
-    _saveItems(next);
+    _saveState(state);
     _recordMovement(
       itemId: itemId,
       itemName: current.name,
@@ -242,38 +241,18 @@ class InventoryController extends StateNotifier<InventoryState> {
     );
     final next = [movement, ...state.movements];
     state = state.copyWith(movements: next);
-    _saveMovements(next);
+    _saveState(state);
   }
 
-  static void _saveItems(List<InventoryItem> items) {
-    final box = localBoxOrNull(LocalDatabase.inventoryItemsBox);
-    if (box == null) {
-      return;
-    }
-    box
-      ..clear()
-      ..putAll({for (final item in items) item.id: item.toMap()});
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
   }
-
-  static void _saveMovements(List<InventoryMovement> movements) {
-    final box = localBoxOrNull(LocalDatabase.inventoryMovementsBox);
-    if (box == null) {
-      return;
-    }
-    box
-      ..clear()
-      ..putAll({for (final item in movements) item.id: item.toMap()});
-  }
-}
-
-Box<Map>? localBoxOrNull(String boxName) {
-  if (!Hive.isBoxOpen(boxName)) {
-    return null;
-  }
-  return Hive.box<Map>(boxName);
 }
 
 final inventoryProvider =
-    StateNotifierProvider<InventoryController, InventoryState>(
-      (ref) => InventoryController(),
-    );
+    StateNotifierProvider<InventoryController, InventoryState>((ref) {
+      ref.watch(currentUserProvider);
+      return InventoryController();
+    });

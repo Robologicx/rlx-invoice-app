@@ -69,42 +69,6 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
     super.dispose();
   }
 
-  void _addManualProduct(QuotationController controller) {
-    controller.addManualProduct(
-      name: _manualNameController.text,
-      quantity: double.tryParse(_manualQtyController.text) ?? 0,
-      unitPrice: double.tryParse(_manualPriceController.text) ?? 0,
-      unit: _manualUnitController.text,
-    );
-    _manualNameController.clear();
-    _manualPriceController.clear();
-    _manualQtyController.text = '1';
-    _manualUnitController.text = 'unit';
-  }
-
-  void _addSelectedInventoryProducts({
-    required QuotationController controller,
-    required List<InventoryItem> inventoryItems,
-  }) {
-    for (final item in inventoryItems) {
-      if (!_selectedInventoryItemIds.contains(item.id)) {
-        continue;
-      }
-      final selectedQty = _selectedInventoryQuantities[item.id] ?? 1;
-      final safeQty = selectedQty.clamp(1, item.quantity.toDouble()).toDouble();
-      controller.addManualProduct(
-        name: item.name,
-        quantity: safeQty,
-        unitPrice: item.price,
-        unit: 'unit',
-      );
-    }
-    setState(() {
-      _selectedInventoryItemIds.clear();
-      _selectedInventoryQuantities.clear();
-    });
-  }
-
   Future<void> _editInventorySelectedQuantity(InventoryItem item) async {
     final current = _selectedInventoryQuantities[item.id] ?? 1;
     final quantityController = TextEditingController(
@@ -211,6 +175,146 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
     );
   }
 
+  void _addManualProduct(QuotationController controller) {
+    final name = _manualNameController.text.trim();
+    final quantity = double.tryParse(_manualQtyController.text) ?? 0;
+    final unitPrice = double.tryParse(_manualPriceController.text) ?? 0;
+    final unit = _manualUnitController.text.trim();
+    if (name.isEmpty || quantity <= 0 || unitPrice < 0) {
+      return;
+    }
+
+    controller.addManualProduct(
+      name: name,
+      quantity: quantity,
+      unitPrice: unitPrice,
+      unit: unit.isEmpty ? 'unit' : unit,
+    );
+
+    _manualNameController.clear();
+    _manualQtyController.text = '1';
+    _manualPriceController.clear();
+    _manualUnitController.text = 'unit';
+  }
+
+  void _editManualProduct(
+    int index,
+    QuotationLine line,
+    QuotationController controller,
+  ) {
+    final nameController = TextEditingController(text: line.name);
+    final qtyController = TextEditingController(
+      text: line.quantity.toStringAsFixed(
+        line.quantity.truncateToDouble() == line.quantity ? 0 : 1,
+      ),
+    );
+    final priceController = TextEditingController(
+      text: line.unitPrice.toStringAsFixed(
+        line.unitPrice.truncateToDouble() == line.unitPrice ? 0 : 1,
+      ),
+    );
+    final unitController = TextEditingController(text: line.unit);
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Edit Manual Product'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: 'Product Name'),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: qtyController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(labelText: 'Qty'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: unitController,
+                      decoration: const InputDecoration(labelText: 'Unit'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: priceController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(labelText: 'Unit Price'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final name = nameController.text.trim();
+                final qty = double.tryParse(qtyController.text) ?? 0;
+                final price = double.tryParse(priceController.text) ?? 0;
+                final unit = unitController.text.trim();
+                if (name.isEmpty || qty <= 0 || price < 0) {
+                  return;
+                }
+                controller.updateManualProductAt(
+                  index,
+                  name: name,
+                  quantity: qty,
+                  unitPrice: price,
+                  unit: unit.isEmpty ? 'unit' : unit,
+                );
+                Navigator.of(dialogContext).pop();
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _addSelectedInventoryProducts({
+    required QuotationController controller,
+    required List<InventoryItem> inventoryItems,
+  }) {
+    for (final item in inventoryItems) {
+      if (!_selectedInventoryItemIds.contains(item.id)) {
+        continue;
+      }
+      final quantity = _selectedInventoryQuantities[item.id] ?? 1;
+      if (quantity <= 0) {
+        continue;
+      }
+      controller.addManualProduct(
+        name: item.name,
+        quantity: quantity,
+        unitPrice: item.price,
+        unit: 'unit',
+      );
+    }
+
+    setState(() {
+      _selectedInventoryItemIds.clear();
+      _selectedInventoryQuantities.clear();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = ref.read(quotationControllerProvider.notifier);
@@ -232,9 +336,6 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
       (item) => item.id == state.selectedPackageId,
       orElse: () => profile.packages.first,
     );
-    final isElectricFence =
-        profile.category == ServiceCategory.electricFence &&
-        !profile.template.id.startsWith('custom_template_');
     final textTheme = Theme.of(context).textTheme;
 
     _syncController(_clientController, state.clientName);
@@ -272,79 +373,83 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
               ),
               const SizedBox(height: 18),
 
-              TextField(
-                controller: _promptController,
-                minLines: 1,
-                maxLines: 2,
-                decoration: InputDecoration(
-                  labelText: 'AI Prompt (Offline)',
-                  hintText:
-                      'Example: Generate electric fence quotation for 280 feet with Nemtek',
-                  suffixIcon: IconButton(
-                    tooltip: 'Generate quotation or invoice from prompt',
-                    icon: const Icon(Icons.psychology_alt_rounded),
-                    onPressed: () async {
-                      final messenger = ScaffoldMessenger.of(context);
-                      final promptText = _promptController.text.trim();
-                      controller.updatePrompt(promptText);
+              SizedBox(
+                height: 72,
+                child: TextField(
+                  controller: _promptController,
+                  expands: true,
+                  maxLines: null,
+                  minLines: null,
+                  decoration: InputDecoration(
+                    labelText: 'AI Prompt (Gemini + Offline Fallback)',
+                    hintText:
+                        'Example: Make invoice for solar cleaning, 8 panels, Rs 100 per panel',
+                    suffixIcon: IconButton(
+                      tooltip: 'Generate quotation or invoice from prompt',
+                      icon: const Icon(Icons.psychology_alt_rounded),
+                      onPressed: () async {
+                        final messenger = ScaffoldMessenger.of(context);
+                        final promptText = _promptController.text.trim();
+                        controller.updatePrompt(promptText);
 
-                      final aiService = ref.read(invoiceAiServiceProvider);
-                      GeneratedQuotation? result;
-                      final aiResult = await aiService
-                          .interpretPromptWithFallback(
-                            prompt: promptText,
-                            profiles: controller.profiles,
-                          );
-                      result = await controller.generateFromParsedPrompt(
-                        aiResult.prompt,
-                      );
-                      if (!mounted) return;
-                      setState(() {
-                        if (aiResult.usedOnlineAi) {
-                          _aiStatusText = 'AI status: online Gemini';
-                          _aiStatusColor = AppTheme.success;
-                        } else {
-                          _aiStatusText = 'AI status: offline fallback';
-                          _aiStatusColor = AppTheme.warning;
-                        }
-                        final parsed = aiResult.prompt;
-                        final pieces = <String>[];
-                        if (parsed.category != null) {
-                          pieces.add(parsed.category!.label);
-                        }
-                        if (parsed.packageHint.isNotEmpty) {
-                          pieces.add('package: ${parsed.packageHint}');
-                        }
-                        if (parsed.systemHint.isNotEmpty) {
-                          pieces.add('system: ${parsed.systemHint}');
-                        }
-                        if (parsed.quantity != null) {
-                          pieces.add(
-                            'qty: ${parsed.quantity!.toStringAsFixed(parsed.quantity!.truncateToDouble() == parsed.quantity ? 0 : 1)}',
-                          );
-                        }
-                        if (parsed.clientName.isNotEmpty) {
-                          pieces.add('client: ${parsed.clientName}');
-                        }
-                        pieces.add(
-                          parsed.wantsInvoice ? 'invoice' : 'quotation',
+                        final aiService = ref.read(invoiceAiServiceProvider);
+                        GeneratedQuotation? result;
+                        final aiResult = await aiService
+                            .interpretPromptWithFallback(
+                              prompt: promptText,
+                              profiles: controller.profiles,
+                            );
+                        result = await controller.generateFromParsedPrompt(
+                          aiResult.prompt,
                         );
-                        _aiResultText = 'AI result: ${pieces.join(' | ')}';
-                      });
-                      if (!mounted) return;
-                      messenger.showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            result?.isInvoice == true
-                                ? 'AI prompt created an invoice.'
-                                : 'AI prompt created a quotation.',
+                        if (!mounted) return;
+                        setState(() {
+                          if (aiResult.usedOnlineAi) {
+                            _aiStatusText = 'AI status: ${aiResult.status}';
+                            _aiStatusColor = AppTheme.success;
+                          } else {
+                            _aiStatusText = 'AI status: ${aiResult.status}';
+                            _aiStatusColor = AppTheme.warning;
+                          }
+                          final parsed = aiResult.prompt;
+                          final pieces = <String>[];
+                          if (parsed.category != null) {
+                            pieces.add(parsed.category!.label);
+                          }
+                          if (parsed.packageHint.isNotEmpty) {
+                            pieces.add('package: ${parsed.packageHint}');
+                          }
+                          if (parsed.systemHint.isNotEmpty) {
+                            pieces.add('system: ${parsed.systemHint}');
+                          }
+                          if (parsed.quantity != null) {
+                            pieces.add(
+                              'qty: ${parsed.quantity!.toStringAsFixed(parsed.quantity!.truncateToDouble() == parsed.quantity ? 0 : 1)}',
+                            );
+                          }
+                          if (parsed.clientName.isNotEmpty) {
+                            pieces.add('client: ${parsed.clientName}');
+                          }
+                          pieces.add(
+                            parsed.wantsInvoice ? 'invoice' : 'quotation',
+                          );
+                          _aiResultText = 'AI result: ${pieces.join(' | ')}';
+                        });
+                        if (!mounted) return;
+                        messenger.showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              result?.isInvoice == true
+                                  ? 'AI prompt created an invoice.'
+                                  : 'AI prompt created a quotation.',
+                            ),
                           ),
-                        ),
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
+                  onChanged: controller.updatePrompt,
                 ),
-                onChanged: controller.updatePrompt,
               ),
               const SizedBox(height: 8),
               Align(
@@ -389,13 +494,17 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
               ),
               const SizedBox(height: 18),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: state.selectedPackageId,
                 decoration: const InputDecoration(
                   labelText: 'Predefined Package',
                 ),
                 items: [
                   for (final item in profile.packages)
-                    DropdownMenuItem(value: item.id, child: Text(item.name)),
+                    DropdownMenuItem(
+                      value: item.id,
+                      child: Text(item.name, overflow: TextOverflow.ellipsis),
+                    ),
                 ],
                 onChanged: (value) {
                   if (value != null) {
@@ -410,16 +519,44 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                 onChanged: controller.updateClientName,
               ),
 
-              if (isElectricFence) ...[
+              if (selectedPackage.quantityLabel.isNotEmpty &&
+                  selectedPackage.rateRules.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 TextField(
                   controller: _feetController,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Running Feet'),
+                  decoration: InputDecoration(
+                    labelText: selectedPackage.quantityLabel,
+                  ),
                   onChanged: controller.updateRunningFeet,
                 ),
               ],
               const SizedBox(height: 16),
+              if (selectedPackage.systemVariants.isNotEmpty) ...[
+                DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  initialValue: state.systemType.isEmpty
+                      ? null
+                      : state.systemType,
+                  decoration: const InputDecoration(labelText: 'System Type'),
+                  items: [
+                    for (final item in selectedPackage.systemVariants.entries)
+                      DropdownMenuItem(
+                        value: item.key,
+                        child: Text(
+                          '${item.key}  •  ${_currency.format(item.value)}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      controller.setSystemType(value);
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+              ],
               Text('Package Product List', style: textTheme.titleLarge),
               const SizedBox(height: 8),
               Wrap(
@@ -541,6 +678,15 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                         ),
                         Text(_currency.format(entry.value.total)),
                         IconButton(
+                          onPressed: () => _editManualProduct(
+                            entry.key,
+                            entry.value,
+                            controller,
+                          ),
+                          icon: const Icon(Icons.edit_outlined),
+                          tooltip: 'Edit',
+                        ),
+                        IconButton(
                           onPressed: () =>
                               controller.removeManualProductAt(entry.key),
                           icon: const Icon(Icons.delete_outline_rounded),
@@ -549,29 +695,6 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                       ],
                     ),
                   ),
-                ),
-              ],
-              if (selectedPackage.systemVariants.isNotEmpty) ...[
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  initialValue: state.systemType.isEmpty
-                      ? null
-                      : state.systemType,
-                  decoration: const InputDecoration(labelText: 'System Type'),
-                  items: [
-                    for (final item in selectedPackage.systemVariants.entries)
-                      DropdownMenuItem(
-                        value: item.key,
-                        child: Text(
-                          '${item.key}  •  ${_currency.format(item.value)}',
-                        ),
-                      ),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      controller.setSystemType(value);
-                    }
-                  },
                 ),
               ],
               const SizedBox(height: 18),

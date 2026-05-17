@@ -1,55 +1,184 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 import '../../database/local_database.dart';
 import '../models/erp_models.dart';
+import '../services/firebase_auth_service.dart';
+import 'cloud_providers.dart';
 
 const _defaultInvoicePolicySections = <InvoicePolicySection>[
   InvoicePolicySection(
     title: 'TERM & CONDITIONS',
     items: [
-      'All Smart Home Devices has 12 Month Manufacturer Warranty',
-      'We reserve the right to change the price at any time, due to fluctuations in currencies and supply.',
-      'No warranty for broken or physical damage or Natural disaster',
-      'Our standard order lead-time is 2 - 3 Weeks, please contact our team in advance for likely delivery times.',
+      '1)- We reserve the right to change the price at any time, due to fluctuations in currencies and supply.',
+      '2)- No warranty for broken or physical damage or Burn or Natural disaster',
     ],
   ),
   InvoicePolicySection(
     title: 'Scope of Work',
     items: [
-      'Supply of Material for above system as per attached BOQ.',
-      'Installation, Testing, Commissioning and Handover of above system as per attached BOQ',
+      '1)- Supply of Material for above system as per attached BOQ.',
+      '2)- Installation, Testing, Commissioning and Handover of above system as per attached BOQ',
     ],
   ),
   InvoicePolicySection(
     title: 'Out of Scope',
     items: [
-      'Any additional requirement other than BOQ will be quoted separately e.g. civil work, electrical point',
-      'Permissions, approval from the Management, Municipality, related government institutions/departments. Any Guarantee up on Any loss before and after installation.',
-      'Our price does not include VAT, Sales Tax or any other government-imposed levy/taxes. The same shall be charged as applicable at the billing, irrespective of when the purchase order is placed.',
-      'If Any network point or existing cable or Any Hardware or device found faulty or unrepairable then replacement will be charged accordingly.',
-      'Any Furniture for control room for installation and viewing.',
-      'Internet connection (provide by client )',
+      '1)- Any work beyond the BOQ, including civil and electrical work, will be charged separately.',
+      '2)- Client is responsible for all required approvals and permissions.',
+      '3)- Prices exclude VAT, taxes, and other government levies.',
+      '4)- Replacement of faulty or unrepairable cables, hardware, or devices will be charged separately.',
+      '5)- Internet connection must be provided by the client.',
     ],
   ),
   InvoicePolicySection(
     title: 'Services & Support',
     items: [
-      'After one month of Installation of electric fence Visit will be charged 2500/- (out of city will be charged Accourdingly)',
-      'AMC contracts will be applicable from 2nd year on wards in 10% of the cost.',
-      'Support & Maintenance Services are invoiced and paid annually in advance.',
-      'Response time will be from 24 to 48 hours.',
+      '1)- Life time After sale service , visit charge will be applied .',
+      '2)- Response time will be from 24 to 48 hours.',
     ],
   ),
 ];
 
 const invoiceLogoSettingsKey = 'invoice_logo_base64';
+const invoiceBusinessDetailsSettingsKey = 'invoice_business_details';
 const _enabledServicesKey = 'enabled_services';
 const _customServiceProfilesKey = 'custom_service_profiles';
 const _serviceCatalogEditsKey = 'service_catalog_edits';
+
+const _defaultInvoiceBusinessDetails = InvoiceBusinessDetails(
+  businessName: 'RLX Invoice',
+  address: 'Near NBP bank, Hussani Chowk, Bahawalpur',
+  phone: '0301-8777220',
+  email: 'info.robologicx@gmail.com',
+  website: 'www.robologicx.org',
+);
+
+String? _activeUserId() => FirebaseAuth.instance.currentUser?.uid;
+
+String? _scopedSettingsKey(String key) {
+  final userId = _activeUserId();
+  if (userId == null || userId.isEmpty) {
+    return null;
+  }
+  return '$userId::$key';
+}
+
+DocumentReference<Map<String, dynamic>>? _settingsDocRef() {
+  final userId = _activeUserId();
+  if (userId == null || userId.isEmpty) {
+    return null;
+  }
+  return FirebaseFirestore.instance.collection('users').doc(userId);
+}
+
+Future<void> _mirrorSettingToFirestore(String key, dynamic value) async {
+  final ref = _settingsDocRef();
+  if (ref == null) {
+    return;
+  }
+  await ref.set({
+    'appSettings': {key: value},
+  }, SetOptions(merge: true));
+}
+
+Future<void> _removeSettingFromFirestore(String key) async {
+  final ref = _settingsDocRef();
+  if (ref == null) {
+    return;
+  }
+  try {
+    await ref.update({'appSettings.$key': FieldValue.delete()});
+  } catch (_) {
+    // Ignore missing document/field errors.
+  }
+}
+
+Future<dynamic> _readSettingFromFirestore(String key) async {
+  final ref = _settingsDocRef();
+  if (ref == null) {
+    return null;
+  }
+
+  final snapshot = await ref.get();
+  final data = snapshot.data();
+  if (data == null) {
+    return null;
+  }
+
+  final appSettings = data['appSettings'];
+  if (appSettings is! Map) {
+    return null;
+  }
+  return appSettings[key];
+}
+
+Future<void> _cacheSettingToHive(String key, dynamic value) async {
+  if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
+    return;
+  }
+  final scopedKey = _scopedSettingsKey(key);
+  if (scopedKey == null) {
+    return;
+  }
+  await Hive.box(LocalDatabase.appSettingsBox).put(scopedKey, value);
+}
+
+class InvoiceBusinessDetails {
+  const InvoiceBusinessDetails({
+    required this.businessName,
+    required this.address,
+    required this.phone,
+    required this.email,
+    required this.website,
+  });
+
+  final String businessName;
+  final String address;
+  final String phone;
+  final String email;
+  final String website;
+
+  InvoiceBusinessDetails copyWith({
+    String? businessName,
+    String? address,
+    String? phone,
+    String? email,
+    String? website,
+  }) {
+    return InvoiceBusinessDetails(
+      businessName: businessName ?? this.businessName,
+      address: address ?? this.address,
+      phone: phone ?? this.phone,
+      email: email ?? this.email,
+      website: website ?? this.website,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    'businessName': businessName,
+    'address': address,
+    'phone': phone,
+    'email': email,
+    'website': website,
+  };
+
+  factory InvoiceBusinessDetails.fromMap(Map<dynamic, dynamic> map) {
+    return InvoiceBusinessDetails(
+      businessName: map['businessName'] as String? ?? 'RLX Invoice',
+      address: map['address'] as String? ?? '',
+      phone: map['phone'] as String? ?? '',
+      email: map['email'] as String? ?? '',
+      website: map['website'] as String? ?? '',
+    );
+  }
+}
 
 T _enumByName<T extends Enum>(List<T> values, String? name, T fallback) {
   if (name == null || name.isEmpty) {
@@ -122,8 +251,10 @@ Map<String, dynamic> _servicePackageToMap(ServicePackage package) {
     'optionalItems': package.optionalItems.map((item) => item.toMap()).toList(),
     'systemVariants': package.systemVariants,
     'hardwareRate': package.hardwareRate,
-    'configurationCharge': package.configurationCharge,
-    'installationCharge': package.installationCharge,
+    'quantityLabel': package.quantityLabel,
+    'quantityDescription': package.quantityDescription,
+    'defaultQuantity': package.defaultQuantity,
+    'rateRules': package.rateRules.map((r) => r.toMap()).toList(),
     'calculationNotes': package.calculationNotes,
   };
 }
@@ -153,8 +284,13 @@ ServicePackage _servicePackageFromMap(Map<dynamic, dynamic> map) {
         entry.key.toString(): (entry.value as num?)?.toDouble() ?? 0,
     },
     hardwareRate: (map['hardwareRate'] as num?)?.toDouble() ?? 0,
-    configurationCharge: (map['configurationCharge'] as num?)?.toDouble() ?? 0,
-    installationCharge: (map['installationCharge'] as num?)?.toDouble() ?? 0,
+    quantityLabel: map['quantityLabel'] as String? ?? '',
+    quantityDescription: map['quantityDescription'] as String? ?? '',
+    defaultQuantity: (map['defaultQuantity'] as num?)?.toDouble() ?? 0,
+    rateRules: (map['rateRules'] as List? ?? const [])
+        .whereType<Map>()
+        .map(RateRule.fromMap)
+        .toList(),
     calculationNotes: map['calculationNotes'] as String? ?? '',
   );
 }
@@ -199,7 +335,11 @@ Set<ServiceCategory> _loadEnabledServices() {
   if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
     return {...ServiceCategory.values};
   }
-  final saved = Hive.box(LocalDatabase.appSettingsBox).get(_enabledServicesKey);
+  final scopedKey = _scopedSettingsKey(_enabledServicesKey);
+  if (scopedKey == null) {
+    return {...ServiceCategory.values};
+  }
+  final saved = Hive.box(LocalDatabase.appSettingsBox).get(scopedKey);
   if (saved is! List) {
     return {...ServiceCategory.values};
   }
@@ -216,22 +356,28 @@ Set<ServiceCategory> _loadEnabledServices() {
   return result.isEmpty ? {...ServiceCategory.values} : result;
 }
 
-Future<void> _saveEnabledServices(Set<ServiceCategory> categories) {
+Future<void> _saveEnabledServices(Set<ServiceCategory> categories) async {
   if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
     return Future.value();
   }
-  return Hive.box(
-    LocalDatabase.appSettingsBox,
-  ).put(_enabledServicesKey, categories.map((item) => item.name).toList());
+  final scopedKey = _scopedSettingsKey(_enabledServicesKey);
+  if (scopedKey == null) {
+    return;
+  }
+  final data = categories.map((item) => item.name).toList();
+  await Hive.box(LocalDatabase.appSettingsBox).put(scopedKey, data);
+  await _mirrorSettingToFirestore(_enabledServicesKey, data);
 }
 
 List<ServiceProfile> _loadCustomServiceProfiles() {
   if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
     return const [];
   }
-  final saved = Hive.box(
-    LocalDatabase.appSettingsBox,
-  ).get(_customServiceProfilesKey);
+  final scopedKey = _scopedSettingsKey(_customServiceProfilesKey);
+  if (scopedKey == null) {
+    return const [];
+  }
+  final saved = Hive.box(LocalDatabase.appSettingsBox).get(scopedKey);
   if (saved is! List) {
     return const [];
   }
@@ -242,22 +388,28 @@ List<ServiceProfile> _loadCustomServiceProfiles() {
       .toList();
 }
 
-Future<void> _saveCustomServiceProfiles(List<ServiceProfile> profiles) {
+Future<void> _saveCustomServiceProfiles(List<ServiceProfile> profiles) async {
   if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
     return Future.value();
   }
-  return Hive.box(
-    LocalDatabase.appSettingsBox,
-  ).put(_customServiceProfilesKey, profiles.map(_serviceProfileToMap).toList());
+  final scopedKey = _scopedSettingsKey(_customServiceProfilesKey);
+  if (scopedKey == null) {
+    return;
+  }
+  final data = profiles.map(_serviceProfileToMap).toList();
+  await Hive.box(LocalDatabase.appSettingsBox).put(scopedKey, data);
+  await _mirrorSettingToFirestore(_customServiceProfilesKey, data);
 }
 
 ServiceCatalogEdits _loadServiceCatalogEdits() {
   if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
     return const ServiceCatalogEdits();
   }
-  final saved = Hive.box(
-    LocalDatabase.appSettingsBox,
-  ).get(_serviceCatalogEditsKey);
+  final scopedKey = _scopedSettingsKey(_serviceCatalogEditsKey);
+  if (scopedKey == null) {
+    return const ServiceCatalogEdits();
+  }
+  final saved = Hive.box(LocalDatabase.appSettingsBox).get(scopedKey);
   if (saved is! Map) {
     return const ServiceCatalogEdits();
   }
@@ -267,6 +419,11 @@ ServiceCatalogEdits _loadServiceCatalogEdits() {
   final templatesByTemplateId = <String, BusinessTemplate>{};
   final disabledPackageIds = <String>{};
   final addedPackagesByProfile = <String, List<ServicePackage>>{};
+  final systemVariantsByPackage = <String, Map<String, double>>{};
+  final quantityLabelByPackage = <String, String>{};
+  final quantityDescriptionByPackage = <String, String>{};
+  final defaultQuantityByPackage = <String, double>{};
+  final rateRulesByPackage = <String, List<RateRule>>{};
 
   final rawProducts = saved['productsByPackage'];
   if (rawProducts is Map) {
@@ -324,21 +481,79 @@ ServiceCatalogEdits _loadServiceCatalogEdits() {
     }
   }
 
+  final rawSystemVariants = saved['systemVariantsByPackage'];
+  if (rawSystemVariants is Map) {
+    for (final entry in rawSystemVariants.entries) {
+      final value = entry.value;
+      if (value is Map) {
+        systemVariantsByPackage[entry.key.toString()] = {
+          for (final e in value.entries)
+            e.key.toString(): (e.value as num?)?.toDouble() ?? 0,
+        };
+      }
+    }
+  }
+
+  final rawQtyLabels = saved['quantityLabelByPackage'];
+  if (rawQtyLabels is Map) {
+    for (final entry in rawQtyLabels.entries) {
+      quantityLabelByPackage[entry.key.toString()] = entry.value.toString();
+    }
+  }
+
+  final rawQtyDescriptions = saved['quantityDescriptionByPackage'];
+  if (rawQtyDescriptions is Map) {
+    for (final entry in rawQtyDescriptions.entries) {
+      quantityDescriptionByPackage[entry.key.toString()] = entry.value
+          .toString();
+    }
+  }
+
+  final rawDefaultQty = saved['defaultQuantityByPackage'];
+  if (rawDefaultQty is Map) {
+    for (final entry in rawDefaultQty.entries) {
+      defaultQuantityByPackage[entry.key.toString()] =
+          (entry.value as num?)?.toDouble() ?? 0;
+    }
+  }
+
+  final rawRateRules = saved['rateRulesByPackage'];
+  if (rawRateRules is Map) {
+    for (final entry in rawRateRules.entries) {
+      final value = entry.value;
+      if (value is List) {
+        rateRulesByPackage[entry.key.toString()] = value
+            .whereType<Map>()
+            .map(RateRule.fromMap)
+            .toList();
+      }
+    }
+  }
+
   return ServiceCatalogEdits(
     productsByPackage: productsByPackage,
     optionalsByPackage: optionalsByPackage,
     templatesByTemplateId: templatesByTemplateId,
     disabledPackageIds: disabledPackageIds,
     addedPackagesByProfile: addedPackagesByProfile,
+    systemVariantsByPackage: systemVariantsByPackage,
+    quantityLabelByPackage: quantityLabelByPackage,
+    quantityDescriptionByPackage: quantityDescriptionByPackage,
+    defaultQuantityByPackage: defaultQuantityByPackage,
+    rateRulesByPackage: rateRulesByPackage,
   );
 }
 
-Future<void> _saveServiceCatalogEdits(ServiceCatalogEdits edits) {
+Future<void> _saveServiceCatalogEdits(ServiceCatalogEdits edits) async {
   if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
     return Future.value();
   }
+  final scopedKey = _scopedSettingsKey(_serviceCatalogEditsKey);
+  if (scopedKey == null) {
+    return;
+  }
 
-  return Hive.box(LocalDatabase.appSettingsBox).put(_serviceCatalogEditsKey, {
+  final data = {
     'productsByPackage': {
       for (final entry in edits.productsByPackage.entries)
         entry.key: entry.value.map(_serviceProductToMap).toList(),
@@ -356,12 +571,28 @@ Future<void> _saveServiceCatalogEdits(ServiceCatalogEdits edits) {
       for (final entry in edits.addedPackagesByProfile.entries)
         entry.key: entry.value.map(_servicePackageToMap).toList(),
     },
-  });
+    'systemVariantsByPackage': {
+      for (final entry in edits.systemVariantsByPackage.entries)
+        entry.key: entry.value,
+    },
+    'quantityLabelByPackage': edits.quantityLabelByPackage,
+    'quantityDescriptionByPackage': edits.quantityDescriptionByPackage,
+    'defaultQuantityByPackage': edits.defaultQuantityByPackage,
+    'rateRulesByPackage': {
+      for (final entry in edits.rateRulesByPackage.entries)
+        entry.key: entry.value.map((r) => r.toMap()).toList(),
+    },
+  };
+
+  await Hive.box(LocalDatabase.appSettingsBox).put(scopedKey, data);
+  await _mirrorSettingToFirestore(_serviceCatalogEditsKey, data);
 }
 
 class InvoicePolicySectionsController
     extends StateNotifier<List<InvoicePolicySection>> {
-  InvoicePolicySectionsController() : super(_loadInvoicePolicySections());
+  InvoicePolicySectionsController() : super(_loadInvoicePolicySections()) {
+    unawaited(_hydrateFromCloud());
+  }
 
   static const _settingsKey = 'invoice_policy_sections';
 
@@ -373,12 +604,26 @@ class InvoicePolicySectionsController
     _saveInvoicePolicySections(state);
   }
 
+  Future<void> _hydrateFromCloud() async {
+    final cloudValue = await _readSettingFromFirestore(_settingsKey);
+    if (cloudValue is! List) {
+      return;
+    }
+
+    await _cacheSettingToHive(_settingsKey, cloudValue);
+    state = _loadInvoicePolicySections();
+  }
+
   static List<InvoicePolicySection> _loadInvoicePolicySections() {
     if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
       return _defaultInvoicePolicySections;
     }
+    final scopedKey = _scopedSettingsKey(_settingsKey);
+    if (scopedKey == null) {
+      return _defaultInvoicePolicySections;
+    }
     final box = Hive.box(LocalDatabase.appSettingsBox);
-    final saved = box.get(_settingsKey);
+    final saved = box.get(scopedKey);
     if (saved is! List) {
       return _defaultInvoicePolicySections;
     }
@@ -406,14 +651,20 @@ class InvoicePolicySectionsController
 
   static Future<void> _saveInvoicePolicySections(
     List<InvoicePolicySection> sections,
-  ) {
+  ) async {
     if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
       return Future.value();
     }
-    return Hive.box(LocalDatabase.appSettingsBox).put(_settingsKey, [
+    final scopedKey = _scopedSettingsKey(_settingsKey);
+    if (scopedKey == null) {
+      return;
+    }
+    final data = [
       for (final section in sections)
         {'title': section.title, 'items': section.items},
-    ]);
+    ];
+    await Hive.box(LocalDatabase.appSettingsBox).put(scopedKey, data);
+    await _mirrorSettingToFirestore(_settingsKey, data);
   }
 }
 
@@ -421,10 +672,93 @@ final invoicePolicySectionsProvider =
     StateNotifierProvider<
       InvoicePolicySectionsController,
       List<InvoicePolicySection>
-    >((ref) => InvoicePolicySectionsController());
+    >((ref) {
+      ref.watch(currentUserProvider);
+      return InvoicePolicySectionsController();
+    });
+
+class InvoiceBusinessDetailsController
+    extends StateNotifier<InvoiceBusinessDetails> {
+  InvoiceBusinessDetailsController() : super(_loadInvoiceBusinessDetails()) {
+    unawaited(_hydrateFromCloud());
+  }
+
+  void setDetails(InvoiceBusinessDetails details) {
+    state = details;
+    _saveInvoiceBusinessDetails(details);
+  }
+
+  Future<void> _hydrateFromCloud() async {
+    final cloudValue = await _readSettingFromFirestore(
+      invoiceBusinessDetailsSettingsKey,
+    );
+    if (cloudValue is! Map) {
+      return;
+    }
+
+    await _cacheSettingToHive(invoiceBusinessDetailsSettingsKey, cloudValue);
+    state = _loadInvoiceBusinessDetails();
+  }
+
+  static InvoiceBusinessDetails _loadInvoiceBusinessDetails() {
+    if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
+      return _defaultInvoiceBusinessDetails;
+    }
+    final scopedKey = _scopedSettingsKey(invoiceBusinessDetailsSettingsKey);
+    if (scopedKey == null) {
+      return _defaultInvoiceBusinessDetails;
+    }
+    final saved = Hive.box(LocalDatabase.appSettingsBox).get(scopedKey);
+    if (saved is! Map) {
+      return _defaultInvoiceBusinessDetails;
+    }
+    final parsed = InvoiceBusinessDetails.fromMap(saved);
+    return _defaultInvoiceBusinessDetails.copyWith(
+      businessName: parsed.businessName.trim().isEmpty
+          ? _defaultInvoiceBusinessDetails.businessName
+          : parsed.businessName,
+      address: parsed.address.trim().isEmpty
+          ? _defaultInvoiceBusinessDetails.address
+          : parsed.address,
+      phone: parsed.phone.trim().isEmpty
+          ? _defaultInvoiceBusinessDetails.phone
+          : parsed.phone,
+      email: parsed.email.trim().isEmpty
+          ? _defaultInvoiceBusinessDetails.email
+          : parsed.email,
+      website: parsed.website,
+    );
+  }
+
+  static Future<void> _saveInvoiceBusinessDetails(
+    InvoiceBusinessDetails details,
+  ) async {
+    if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
+      return Future.value();
+    }
+    final scopedKey = _scopedSettingsKey(invoiceBusinessDetailsSettingsKey);
+    if (scopedKey == null) {
+      return;
+    }
+    final data = details.toMap();
+    await Hive.box(LocalDatabase.appSettingsBox).put(scopedKey, data);
+    await _mirrorSettingToFirestore(invoiceBusinessDetailsSettingsKey, data);
+  }
+}
+
+final invoiceBusinessDetailsProvider =
+    StateNotifierProvider<
+      InvoiceBusinessDetailsController,
+      InvoiceBusinessDetails
+    >((ref) {
+      ref.watch(currentUserProvider);
+      return InvoiceBusinessDetailsController();
+    });
 
 class InvoiceLogoController extends StateNotifier<Uint8List?> {
-  InvoiceLogoController() : super(_loadLogo());
+  InvoiceLogoController() : super(_loadLogo()) {
+    unawaited(_hydrateFromCloud());
+  }
 
   void setLogoBytes(Uint8List bytes) {
     state = bytes;
@@ -436,16 +770,33 @@ class InvoiceLogoController extends StateNotifier<Uint8List?> {
     if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
       return;
     }
-    Hive.box(LocalDatabase.appSettingsBox).delete(invoiceLogoSettingsKey);
+    final scopedKey = _scopedSettingsKey(invoiceLogoSettingsKey);
+    if (scopedKey == null) {
+      return;
+    }
+    Hive.box(LocalDatabase.appSettingsBox).delete(scopedKey);
+    unawaited(_removeSettingFromFirestore(invoiceLogoSettingsKey));
+  }
+
+  Future<void> _hydrateFromCloud() async {
+    final cloudValue = await _readSettingFromFirestore(invoiceLogoSettingsKey);
+    if (cloudValue is! Uint8List && cloudValue is! String) {
+      return;
+    }
+
+    await _cacheSettingToHive(invoiceLogoSettingsKey, cloudValue);
+    state = _loadLogo();
   }
 
   static Uint8List? _loadLogo() {
     if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
       return null;
     }
-    final saved = Hive.box(
-      LocalDatabase.appSettingsBox,
-    ).get(invoiceLogoSettingsKey);
+    final scopedKey = _scopedSettingsKey(invoiceLogoSettingsKey);
+    if (scopedKey == null) {
+      return null;
+    }
+    final saved = Hive.box(LocalDatabase.appSettingsBox).get(scopedKey);
     if (saved is Uint8List && saved.isNotEmpty) {
       return saved;
     }
@@ -459,23 +810,39 @@ class InvoiceLogoController extends StateNotifier<Uint8List?> {
     }
   }
 
-  static Future<void> _saveLogo(Uint8List bytes) {
+  static Future<void> _saveLogo(Uint8List bytes) async {
     if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
       return Future.value();
     }
-    return Hive.box(
-      LocalDatabase.appSettingsBox,
-    ).put(invoiceLogoSettingsKey, bytes);
+    final scopedKey = _scopedSettingsKey(invoiceLogoSettingsKey);
+    if (scopedKey == null) {
+      return;
+    }
+    await Hive.box(LocalDatabase.appSettingsBox).put(scopedKey, bytes);
+    await _mirrorSettingToFirestore(invoiceLogoSettingsKey, bytes);
   }
 }
 
 final invoiceLogoBytesProvider =
-    StateNotifierProvider<InvoiceLogoController, Uint8List?>(
-      (ref) => InvoiceLogoController(),
-    );
+    StateNotifierProvider<InvoiceLogoController, Uint8List?>((ref) {
+      ref.watch(currentUserProvider);
+      return InvoiceLogoController();
+    });
 
 class EnabledServicesController extends StateNotifier<Set<ServiceCategory>> {
-  EnabledServicesController() : super(_loadEnabledServices());
+  EnabledServicesController() : super(_loadEnabledServices()) {
+    unawaited(_hydrateFromCloud());
+  }
+
+  Future<void> _hydrateFromCloud() async {
+    final cloudValue = await _readSettingFromFirestore(_enabledServicesKey);
+    if (cloudValue is! List) {
+      return;
+    }
+
+    await _cacheSettingToHive(_enabledServicesKey, cloudValue);
+    state = _loadEnabledServices();
+  }
 
   void toggle(ServiceCategory category) {
     if (state.contains(category)) {
@@ -506,13 +873,30 @@ class EnabledServicesController extends StateNotifier<Set<ServiceCategory>> {
 }
 
 final enabledServicesProvider =
-    StateNotifierProvider<EnabledServicesController, Set<ServiceCategory>>(
-      (ref) => EnabledServicesController(),
-    );
+    StateNotifierProvider<EnabledServicesController, Set<ServiceCategory>>((
+      ref,
+    ) {
+      ref.watch(currentUserProvider);
+      return EnabledServicesController();
+    });
 
 class CustomServiceProfilesController
     extends StateNotifier<List<ServiceProfile>> {
-  CustomServiceProfilesController() : super(_loadCustomServiceProfiles());
+  CustomServiceProfilesController() : super(_loadCustomServiceProfiles()) {
+    unawaited(_hydrateFromCloud());
+  }
+
+  Future<void> _hydrateFromCloud() async {
+    final cloudValue = await _readSettingFromFirestore(
+      _customServiceProfilesKey,
+    );
+    if (cloudValue is! List) {
+      return;
+    }
+
+    await _cacheSettingToHive(_customServiceProfilesKey, cloudValue);
+    state = _loadCustomServiceProfiles();
+  }
 
   ServiceProfile? addService({
     required String title,
@@ -623,7 +1007,10 @@ final customServiceProfilesProvider =
     StateNotifierProvider<
       CustomServiceProfilesController,
       List<ServiceProfile>
-    >((ref) => CustomServiceProfilesController());
+    >((ref) {
+      ref.watch(currentUserProvider);
+      return CustomServiceProfilesController();
+    });
 
 class ServiceCatalogEdits {
   const ServiceCatalogEdits({
@@ -632,6 +1019,11 @@ class ServiceCatalogEdits {
     this.templatesByTemplateId = const {},
     this.disabledPackageIds = const {},
     this.addedPackagesByProfile = const {},
+    this.systemVariantsByPackage = const {},
+    this.quantityLabelByPackage = const {},
+    this.quantityDescriptionByPackage = const {},
+    this.defaultQuantityByPackage = const {},
+    this.rateRulesByPackage = const {},
   });
 
   final Map<String, List<ServiceProduct>> productsByPackage;
@@ -639,6 +1031,11 @@ class ServiceCatalogEdits {
   final Map<String, BusinessTemplate> templatesByTemplateId;
   final Set<String> disabledPackageIds;
   final Map<String, List<ServicePackage>> addedPackagesByProfile;
+  final Map<String, Map<String, double>> systemVariantsByPackage;
+  final Map<String, String> quantityLabelByPackage;
+  final Map<String, String> quantityDescriptionByPackage;
+  final Map<String, double> defaultQuantityByPackage;
+  final Map<String, List<RateRule>> rateRulesByPackage;
 
   ServiceCatalogEdits copyWith({
     Map<String, List<ServiceProduct>>? productsByPackage,
@@ -646,6 +1043,11 @@ class ServiceCatalogEdits {
     Map<String, BusinessTemplate>? templatesByTemplateId,
     Set<String>? disabledPackageIds,
     Map<String, List<ServicePackage>>? addedPackagesByProfile,
+    Map<String, Map<String, double>>? systemVariantsByPackage,
+    Map<String, String>? quantityLabelByPackage,
+    Map<String, String>? quantityDescriptionByPackage,
+    Map<String, double>? defaultQuantityByPackage,
+    Map<String, List<RateRule>>? rateRulesByPackage,
   }) {
     return ServiceCatalogEdits(
       productsByPackage: productsByPackage ?? this.productsByPackage,
@@ -655,12 +1057,33 @@ class ServiceCatalogEdits {
       disabledPackageIds: disabledPackageIds ?? this.disabledPackageIds,
       addedPackagesByProfile:
           addedPackagesByProfile ?? this.addedPackagesByProfile,
+      systemVariantsByPackage:
+          systemVariantsByPackage ?? this.systemVariantsByPackage,
+      quantityLabelByPackage:
+          quantityLabelByPackage ?? this.quantityLabelByPackage,
+      quantityDescriptionByPackage:
+          quantityDescriptionByPackage ?? this.quantityDescriptionByPackage,
+      defaultQuantityByPackage:
+          defaultQuantityByPackage ?? this.defaultQuantityByPackage,
+      rateRulesByPackage: rateRulesByPackage ?? this.rateRulesByPackage,
     );
   }
 }
 
 class ServiceCatalogEditsController extends StateNotifier<ServiceCatalogEdits> {
-  ServiceCatalogEditsController() : super(_loadServiceCatalogEdits());
+  ServiceCatalogEditsController() : super(_loadServiceCatalogEdits()) {
+    unawaited(_hydrateFromCloud());
+  }
+
+  Future<void> _hydrateFromCloud() async {
+    final cloudValue = await _readSettingFromFirestore(_serviceCatalogEditsKey);
+    if (cloudValue is! Map) {
+      return;
+    }
+
+    await _cacheSettingToHive(_serviceCatalogEditsKey, cloudValue);
+    state = _loadServiceCatalogEdits();
+  }
 
   void setPackageEdits({
     required String packageId,
@@ -668,6 +1091,11 @@ class ServiceCatalogEditsController extends StateNotifier<ServiceCatalogEdits> {
     required List<OptionalItem> optionals,
     String? templateId,
     BusinessTemplate? template,
+    Map<String, double>? systemVariants,
+    String? quantityLabel,
+    String? quantityDescription,
+    double? defaultQuantity,
+    List<RateRule>? rateRules,
   }) {
     final nextProducts = {...state.productsByPackage, packageId: products};
     final nextOptionals = {...state.optionalsByPackage, packageId: optionals};
@@ -675,11 +1103,36 @@ class ServiceCatalogEditsController extends StateNotifier<ServiceCatalogEdits> {
     if (templateId != null && template != null) {
       nextTemplates[templateId] = template;
     }
+    final nextSystemVariants = {...state.systemVariantsByPackage};
+    if (systemVariants != null) {
+      nextSystemVariants[packageId] = systemVariants;
+    }
+    final nextQtyLabels = {...state.quantityLabelByPackage};
+    if (quantityLabel != null) {
+      nextQtyLabels[packageId] = quantityLabel;
+    }
+    final nextQtyDescriptions = {...state.quantityDescriptionByPackage};
+    if (quantityDescription != null) {
+      nextQtyDescriptions[packageId] = quantityDescription;
+    }
+    final nextDefaultQty = {...state.defaultQuantityByPackage};
+    if (defaultQuantity != null) {
+      nextDefaultQty[packageId] = defaultQuantity;
+    }
+    final nextRateRules = {...state.rateRulesByPackage};
+    if (rateRules != null) {
+      nextRateRules[packageId] = rateRules;
+    }
 
     state = state.copyWith(
       productsByPackage: nextProducts,
       optionalsByPackage: nextOptionals,
       templatesByTemplateId: nextTemplates,
+      systemVariantsByPackage: nextSystemVariants,
+      quantityLabelByPackage: nextQtyLabels,
+      quantityDescriptionByPackage: nextQtyDescriptions,
+      defaultQuantityByPackage: nextDefaultQty,
+      rateRulesByPackage: nextRateRules,
     );
     _saveServiceCatalogEdits(state);
   }
@@ -724,9 +1177,12 @@ class ServiceCatalogEditsController extends StateNotifier<ServiceCatalogEdits> {
 }
 
 final serviceCatalogEditsProvider =
-    StateNotifierProvider<ServiceCatalogEditsController, ServiceCatalogEdits>(
-      (ref) => ServiceCatalogEditsController(),
-    );
+    StateNotifierProvider<ServiceCatalogEditsController, ServiceCatalogEdits>((
+      ref,
+    ) {
+      ref.watch(currentUserProvider);
+      return ServiceCatalogEditsController();
+    });
 
 const _electricFenceMarkup = '''
 RLX Invoice Electric Fence Template
@@ -825,6 +1281,11 @@ final serviceProfilesProvider = Provider<List<ServiceProfile>>((ref) {
           category: ServiceCategory.electricFence,
           templateId: 'electric_fence_template',
           hardwareRate: 300,
+          quantityLabel: 'Running Feet',
+          rateRules: [
+            RateRule(upTo: 100, rate: 450),
+            RateRule(upTo: double.infinity, rate: 350),
+          ],
           systemVariants: {'Tonger / Chinese': 45000, 'Nemtek': 55000},
           optionalItems: [
             OptionalItem(id: 'fence_light', name: 'Fence Light', price: 3500),
@@ -838,10 +1299,16 @@ final serviceProfilesProvider = Provider<List<ServiceProfile>>((ref) {
         ServicePackage(
           id: 'fence_5marla',
           name: '5 Marla Package',
-          summary: 'Typical ~120 running feet for a 5 Marla plot.',
+          summary: 'Typical ~40 running feet for a 5 Marla plot.',
           category: ServiceCategory.electricFence,
           templateId: 'electric_fence_template',
           hardwareRate: 300,
+          quantityLabel: 'Running Feet',
+          defaultQuantity: 40,
+          rateRules: [
+            RateRule(upTo: 100, rate: 450),
+            RateRule(upTo: double.infinity, rate: 350),
+          ],
           systemVariants: {'Tonger / Chinese': 45000, 'Nemtek': 55000},
           optionalItems: [
             OptionalItem(
@@ -857,15 +1324,21 @@ final serviceProfilesProvider = Provider<List<ServiceProfile>>((ref) {
             OptionalItem(id: 'fence_5m_wifi', name: 'WiFi Card', price: 21500),
             OptionalItem(id: 'fence_5m_tada', name: 'TA/DA', price: 5000),
           ],
-          calculationNotes: 'Typical 5 Marla plot. Enter ~120 in Running Feet.',
+          calculationNotes: 'Typical 5 Marla plot. Default is 40 running feet.',
         ),
         ServicePackage(
           id: 'fence_10marla',
           name: '10 Marla Package',
-          summary: 'Typical ~200 running feet for a 10 Marla plot.',
+          summary: 'Typical ~120 running feet for a 10 Marla plot.',
           category: ServiceCategory.electricFence,
           templateId: 'electric_fence_template',
           hardwareRate: 300,
+          quantityLabel: 'Running Feet',
+          defaultQuantity: 120,
+          rateRules: [
+            RateRule(upTo: 100, rate: 450),
+            RateRule(upTo: double.infinity, rate: 350),
+          ],
           systemVariants: {'Tonger / Chinese': 45000, 'Nemtek': 55000},
           optionalItems: [
             OptionalItem(
@@ -882,7 +1355,7 @@ final serviceProfilesProvider = Provider<List<ServiceProfile>>((ref) {
             OptionalItem(id: 'fence_10m_tada', name: 'TA/DA', price: 5000),
           ],
           calculationNotes:
-              'Typical 10 Marla plot. Enter ~200 in Running Feet.',
+              'Typical 10 Marla plot. Default is 120 running feet.',
         ),
         ServicePackage(
           id: 'fence_1kanal',
@@ -891,6 +1364,11 @@ final serviceProfilesProvider = Provider<List<ServiceProfile>>((ref) {
           category: ServiceCategory.electricFence,
           templateId: 'electric_fence_template',
           hardwareRate: 300,
+          quantityLabel: 'Running Feet',
+          rateRules: [
+            RateRule(upTo: 100, rate: 450),
+            RateRule(upTo: double.infinity, rate: 350),
+          ],
           systemVariants: {'Tonger / Chinese': 45000, 'Nemtek': 55000},
           optionalItems: [
             OptionalItem(
@@ -985,8 +1463,6 @@ final serviceProfilesProvider = Provider<List<ServiceProfile>>((ref) {
             ),
             OptionalItem(id: 'ta_da', name: 'TA/DA', price: 6000),
           ],
-          configurationCharge: 15000,
-          installationCharge: 22000,
           calculationNotes:
               'Final amount = hardware subtotal + configuration + installation.',
         ),
@@ -1049,8 +1525,6 @@ final serviceProfilesProvider = Provider<List<ServiceProfile>>((ref) {
             ),
             OptionalItem(id: 'cctv_10_tada', name: 'TA/DA', price: 6000),
           ],
-          configurationCharge: 20000,
-          installationCharge: 35000,
           calculationNotes:
               'Final amount = hardware subtotal + configuration + installation.',
         ),
@@ -1114,8 +1588,6 @@ final serviceProfilesProvider = Provider<List<ServiceProfile>>((ref) {
             ),
             OptionalItem(id: 'cctv_16_tada', name: 'TA/DA', price: 6000),
           ],
-          configurationCharge: 25000,
-          installationCharge: 45000,
           calculationNotes:
               'Final amount = hardware subtotal + configuration + installation.',
         ),
@@ -1711,10 +2183,21 @@ final editableServiceProfilesProvider = Provider<List<ServiceProfile>>((ref) {
             templateId: package.templateId,
             products: fallbackProducts,
             optionalItems: editedOptionals ?? package.optionalItems,
-            systemVariants: package.systemVariants,
+            systemVariants:
+                edits.systemVariantsByPackage[package.id] ??
+                package.systemVariants,
             hardwareRate: package.hardwareRate,
-            configurationCharge: package.configurationCharge,
-            installationCharge: package.installationCharge,
+            quantityLabel:
+                edits.quantityLabelByPackage[package.id] ??
+                package.quantityLabel,
+            quantityDescription:
+                edits.quantityDescriptionByPackage[package.id] ??
+                package.quantityDescription,
+            defaultQuantity:
+                edits.defaultQuantityByPackage[package.id] ??
+                package.defaultQuantity,
+            rateRules:
+                edits.rateRulesByPackage[package.id] ?? package.rateRules,
             calculationNotes: package.calculationNotes,
           );
         })
@@ -1759,31 +2242,23 @@ final dashboardMetricsProvider = Provider<List<DashboardMetric>>((ref) {
   ];
 });
 
-final clientsProvider = Provider<List<ClientRecord>>((ref) {
-  return const [
-    ClientRecord(
-      name: 'Alpha Residencia',
-      phone: '+92 300 1112233',
-      address: 'Islamabad',
-      projectType: 'Smart Home',
-      paymentStatus: 'Partial',
-      previousHistory: '2 previous automation phases completed.',
-    ),
-    ClientRecord(
-      name: 'Green Horizon Farms',
-      phone: '+92 321 5557788',
-      address: 'Lahore',
-      projectType: 'Electric Fence',
-      paymentStatus: 'Paid',
-      previousHistory: 'Annual maintenance plan active.',
-    ),
-    ClientRecord(
-      name: 'Nova Plaza',
-      phone: '+92 333 1010101',
-      address: 'Karachi',
-      projectType: 'CCTV / IP Camera',
-      paymentStatus: 'Overdue',
-      previousHistory: 'Requested multi-site monitoring expansion.',
-    ),
-  ];
+final clientsProvider = StreamProvider<List<ClientRecord>>((ref) {
+  final cloudClients = ref.watch(cloudClientsProvider);
+
+  return cloudClients.when(
+    data: (clients) {
+      return Stream.value(
+        clients
+            .map(
+              (clientData) => ClientRecord.fromMap(
+                clientData,
+                docId: clientData['id'] as String?,
+              ),
+            )
+            .toList(),
+      );
+    },
+    loading: () => Stream.value(const []),
+    error: (err, stack) => Stream.value(const []),
+  );
 });

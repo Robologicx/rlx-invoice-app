@@ -1,18 +1,31 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive/hive.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../../core/models/erp_models.dart';
-import '../../../database/local_database.dart';
+import '../../../core/services/firebase_auth_service.dart';
 
 class InvoiceHistoryService {
-  Box<Map>? get _box {
-    if (!Hive.isBoxOpen(LocalDatabase.invoicesBox)) {
-      return null;
-    }
-    return Hive.box<Map>(LocalDatabase.invoicesBox);
+  final FirebaseFirestore _firestore;
+
+  InvoiceHistoryService({FirebaseFirestore? firestore})
+    : _firestore = firestore ?? FirebaseFirestore.instance;
+
+  String? _activeUserId() => FirebaseAuth.instance.currentUser?.uid;
+
+  CollectionReference<Map<String, dynamic>> _collection(String userId) {
+    return _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('invoice_history');
   }
 
   Future<void> save(GeneratedQuotation quotation) async {
+    final userId = _activeUserId();
+    if (userId == null || userId.isEmpty) {
+      return;
+    }
+
     final now = DateTime.now();
     final uniqueId =
         '${quotation.quotationNo}-${now.microsecondsSinceEpoch}-${quotation.isInvoice ? 'inv' : 'quo'}';
@@ -32,56 +45,59 @@ class InvoiceHistoryService {
       renderedTemplate: quotation.renderedTemplate,
       document: quotation,
     );
-
-    final box = _box;
-    if (box == null) {
-      return;
-    }
-
-    await box.put(record.id, record.toMap());
+    await _collection(userId).doc(record.id).set(record.toMap());
   }
 
   List<InvoiceRecord> all() {
-    final box = _box;
-    if (box == null) {
-      return const [];
-    }
-
-    return box.values.map((value) => InvoiceRecord.fromMap(value)).toList()
-      ..sort((a, b) => b.generatedAt.compareTo(a.generatedAt));
+    return const [];
   }
 
   Stream<List<InvoiceRecord>> watchAll() async* {
-    final box = _box;
-    if (box == null) {
+    final userId = _activeUserId();
+    if (userId == null || userId.isEmpty) {
       yield const [];
       return;
     }
 
-    yield all();
-    await for (final _ in box.watch()) {
-      yield all();
-    }
+    yield* _collection(userId)
+        .orderBy('generatedAt', descending: true)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => InvoiceRecord.fromMap(doc.data()))
+              .toList(),
+        );
   }
 
   Future<void> deleteRecord(String id) async {
-    final box = _box;
-    if (box == null) {
+    final userId = _activeUserId();
+    if (userId == null || userId.isEmpty) {
       return;
     }
-    await box.delete(id);
+    await _collection(userId).doc(id).delete();
   }
 
   Future<void> clearAll() async {
-    final box = _box;
-    if (box == null) {
+    final userId = _activeUserId();
+    if (userId == null || userId.isEmpty) {
       return;
     }
-    await box.clear();
+
+    final snapshot = await _collection(userId).get();
+    if (snapshot.docs.isEmpty) {
+      return;
+    }
+
+    final batch = _firestore.batch();
+    for (final doc in snapshot.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
   }
 }
 
 final invoiceHistoryServiceProvider = Provider<InvoiceHistoryService>((ref) {
+  ref.watch(currentUserProvider);
   return InvoiceHistoryService();
 });
 
