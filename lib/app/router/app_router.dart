@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/services/app_mode_service.dart';
 import '../../core/services/firebase_auth_service.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/dashboard/presentation/dashboard_screen.dart';
@@ -15,10 +16,19 @@ import '../../shared/presentation/widgets/app_shell.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authStateProvider);
+  final offlineMode = ref.watch(appModeProvider);
 
   return GoRouter(
     initialLocation: '/',
     redirect: (context, state) {
+      if (offlineMode) {
+        if (state.matchedLocation == '/login' ||
+            state.matchedLocation == '/invoices') {
+          return null;
+        }
+        return '/invoices';
+      }
+
       final isLoggedIn = authState.maybeWhen(
         data: (user) => user != null,
         orElse: () => false,

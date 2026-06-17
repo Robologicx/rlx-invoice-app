@@ -28,6 +28,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
   late final TextEditingController _manualUnitController;
   late final TextEditingController _paymentReceivedController;
   late final TextEditingController _paymentTotalController;
+  late final TextEditingController _discountController;
   final Set<String> _selectedInventoryItemIds = <String>{};
   final Map<String, double> _selectedInventoryQuantities = <String, double>{};
   String _paymentForQuotationNo = '';
@@ -53,6 +54,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
     _manualUnitController = TextEditingController(text: 'unit');
     _paymentReceivedController = TextEditingController();
     _paymentTotalController = TextEditingController();
+    _discountController = TextEditingController();
   }
 
   @override
@@ -66,6 +68,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
     _manualUnitController.dispose();
     _paymentReceivedController.dispose();
     _paymentTotalController.dispose();
+    _discountController.dispose();
     super.dispose();
   }
 
@@ -342,6 +345,8 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
     _syncController(_feetController, state.runningFeet);
     _syncController(_promptController, state.aiPrompt);
     final generated = state.generatedQuotation;
+    final showGenerateQuotationButton =
+        generated == null || !generated.isInvoice;
     if (generated != null && _paymentForQuotationNo != generated.quotationNo) {
       _paymentForQuotationNo = generated.quotationNo;
       _paymentReceivedController.text = generated.paymentReceived
@@ -354,6 +359,11 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
       _paymentTotalController.text = generated.paymentReceived.toStringAsFixed(
         generated.paymentReceived.truncateToDouble() ==
                 generated.paymentReceived
+            ? 0
+            : 1,
+      );
+      _discountController.text = generated.discountAmount.toStringAsFixed(
+        generated.discountAmount.truncateToDouble() == generated.discountAmount
             ? 0
             : 1,
       );
@@ -842,16 +852,23 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                   ],
                 ),
               const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () async {
-                    await controller.generateQuotation();
-                  },
-                  icon: const Icon(Icons.auto_awesome_rounded),
-                  label: const Text('Generate quotation'),
+              if (showGenerateQuotationButton)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      final current = ref
+                          .read(quotationControllerProvider)
+                          .generatedQuotation;
+                      if (current?.isInvoice == true) {
+                        return;
+                      }
+                      await controller.generateQuotation();
+                    },
+                    icon: const Icon(Icons.auto_awesome_rounded),
+                    label: const Text('Generate quotation'),
+                  ),
                 ),
-              ),
               if (state.generatedQuotation != null) ...[
                 const SizedBox(height: 10),
                 TextField(
@@ -868,6 +885,20 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                         : 'Enter first received amount to convert into invoice',
                   ),
                 ),
+                if (!state.generatedQuotation!.isInvoice) ...[
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _discountController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Discount (Optional)',
+                      hintText: 'Enter fixed discount amount before invoice',
+                      prefixText: 'PKR ',
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
@@ -880,8 +911,12 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                       }
                       final amount =
                           double.tryParse(_paymentReceivedController.text) ?? 0;
+                      final discount = !quotation.isInvoice
+                          ? double.tryParse(_discountController.text) ?? 0
+                          : quotation.discountAmount;
                       await controller.convertToInvoice(
                         paymentReceived: amount,
+                        discountAmount: discount,
                       );
                       final updated = ref
                           .read(quotationControllerProvider)
@@ -916,6 +951,54 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                   ),
                 ),
                 if (state.generatedQuotation!.isInvoice) ...[
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _discountController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Apply Discount',
+                      hintText: 'Enter fixed discount amount',
+                      prefixText: 'PKR ',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final messenger = ScaffoldMessenger.of(context);
+                        final discount =
+                            double.tryParse(_discountController.text) ?? 0;
+                        await controller.updateInvoiceDiscount(
+                          discountAmount: discount,
+                        );
+                        final updated = ref
+                            .read(quotationControllerProvider)
+                            .generatedQuotation;
+                        if (updated != null) {
+                          _discountController.text = updated.discountAmount
+                              .toStringAsFixed(
+                                updated.discountAmount.truncateToDouble() ==
+                                        updated.discountAmount
+                                    ? 0
+                                    : 1,
+                              );
+                        }
+                        if (!mounted) return;
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Invoice discount updated successfully.',
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.money_off_rounded),
+                      label: const Text('Apply Discount'),
+                    ),
+                  ),
                   const SizedBox(height: 10),
                   TextField(
                     controller: _paymentTotalController,
@@ -1164,6 +1247,33 @@ class _QuotationPreview extends StatelessWidget {
           ),
         ),
         const Divider(height: 28, color: AppTheme.outline),
+        if (quotation.discountPercent > 0) ...[
+          Row(
+            children: [
+              Expanded(child: Text('Subtotal', style: textTheme.bodyLarge)),
+              Text(
+                currency.format(quotation.subtotal),
+                style: textTheme.bodyLarge,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Discount',
+                  style: textTheme.bodyMedium?.copyWith(color: AppTheme.muted),
+                ),
+              ),
+              Text(
+                '- ${currency.format(quotation.discountAmount)}',
+                style: textTheme.bodyMedium?.copyWith(color: AppTheme.muted),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+        ],
         Row(
           children: [
             Expanded(child: Text('Grand Total', style: textTheme.titleLarge)),

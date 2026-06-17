@@ -308,6 +308,28 @@ Future<Uint8List> buildInvoicePdfBytes({
           ],
         ),
         pw.SizedBox(height: 12),
+        if (quotation.discountPercent > 0) ...[
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.end,
+            children: [
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.Text(
+                    'Subtotal: PKR ${_fmt(quotation.subtotal)}',
+                    style: bodyStyle,
+                  ),
+                  pw.SizedBox(height: 4),
+                  pw.Text(
+                    'Discount: - PKR ${_fmt(quotation.discountAmount)}',
+                    style: bodyStyle,
+                  ),
+                  pw.SizedBox(height: 4),
+                ],
+              ),
+            ],
+          ),
+        ],
         pw.Row(
           mainAxisAlignment: pw.MainAxisAlignment.end,
           children: [

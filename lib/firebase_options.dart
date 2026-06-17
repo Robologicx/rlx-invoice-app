@@ -14,7 +14,7 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'YOUR_ANDROID_API_KEY',
+    apiKey: 'AIzaSyBUJhnyLA6eiQr0HkMf1phC9BQDW8bHV64',
     appId: '1:YOUR_PROJECT_NUMBER:android:YOUR_ANDROID_APP_ID',
     messagingSenderId: '304175455062',
     projectId: 'auto-invoicing-4176f',

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "304175455062",
+    "project_id": "auto-invoicing-4176f",
+    "storage_bucket": "auto-invoicing-4176f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:304175455062:android:YOUR_ANDROID_APP_ID",
+        "android_client_info": {
+          "package_name": "com.robologicx.robologicx_workshop_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBUJhnyLA6eiQr0HkMf1phC9BQDW8bHV64"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

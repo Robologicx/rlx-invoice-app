@@ -19,7 +19,11 @@ final selectedMonthInvoicesProvider = Provider<AsyncValue<List<InvoiceRecord>>>(
     return invoicesAsync.whenData((invoices) {
       final deduped = <String, InvoiceRecord>{};
       for (final record in invoices.where((item) => item.isInvoice)) {
-        final key = record.parentQuotationNo;
+        final key = record.invoiceNo.isNotEmpty
+            ? record.invoiceNo
+            : (record.parentQuotationNo.isNotEmpty
+                  ? record.parentQuotationNo
+                  : record.quotationNo);
         final existing = deduped[key];
         if (existing == null ||
             record.generatedAt.isAfter(existing.generatedAt)) {
@@ -83,7 +87,11 @@ final financeSummaryProvider = Provider<AsyncValue<FinanceSummary>>((ref) {
 
   final invoiceMap = <String, InvoiceRecord>{};
   for (final record in invoiceRecords.where((item) => item.isInvoice)) {
-    final key = record.parentQuotationNo;
+    final key = record.invoiceNo.isNotEmpty
+        ? record.invoiceNo
+        : (record.parentQuotationNo.isNotEmpty
+              ? record.parentQuotationNo
+              : record.quotationNo);
     final existing = invoiceMap[key];
     if (existing == null || record.generatedAt.isAfter(existing.generatedAt)) {
       invoiceMap[key] = record;

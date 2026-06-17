@@ -51,6 +51,7 @@ class QuotationState {
     required this.optionalItemQuantities,
     required this.manualProducts,
     this.generatedQuotation,
+    this.discountPercent = 0,
   });
 
   final ServiceCategory category;
@@ -66,6 +67,7 @@ class QuotationState {
   final Map<String, double> optionalItemQuantities;
   final List<QuotationLine> manualProducts;
   final GeneratedQuotation? generatedQuotation;
+  final double discountPercent;
 
   QuotationState copyWith({
     ServiceCategory? category,
@@ -82,6 +84,7 @@ class QuotationState {
     List<QuotationLine>? manualProducts,
     GeneratedQuotation? generatedQuotation,
     bool clearGeneratedQuotation = false,
+    double? discountPercent,
   }) {
     return QuotationState(
       category: category ?? this.category,
@@ -99,6 +102,7 @@ class QuotationState {
       optionalItemQuantities:
           optionalItemQuantities ?? this.optionalItemQuantities,
       manualProducts: manualProducts ?? this.manualProducts,
+      discountPercent: discountPercent ?? this.discountPercent,
       generatedQuotation: clearGeneratedQuotation
           ? null
           : generatedQuotation ?? this.generatedQuotation,
@@ -148,6 +152,7 @@ class QuotationController extends StateNotifier<QuotationState> {
   final ServiceRuleEngine _ruleEngine;
   final InvoiceHistoryService _historyService;
   final List<InvoicePolicySection> _invoicePolicySections;
+  GeneratedQuotation? _editingDocument;
   final NumberFormat _currency = NumberFormat.currency(
     locale: 'en_PK',
     symbol: 'PKR ',
@@ -282,6 +287,7 @@ class QuotationController extends StateNotifier<QuotationState> {
       }
     }
 
+    _editingDocument = document;
     state = state.copyWith(
       category: document.category,
       selectedProfileId: profile.template.id,
@@ -688,8 +694,20 @@ class QuotationController extends StateNotifier<QuotationState> {
       ...lineItems,
       ...optionalLines,
     ].fold<double>(0, (sum, item) => sum + item.total);
+    final existing = state.generatedQuotation ?? _editingDocument;
     final quotationNo =
+        existing?.quotationNo ??
         'RLGX-${now.year}${now.month.toString().padLeft(2, '0')}-${now.microsecondsSinceEpoch % 10000}';
+    final isInvoice = existing?.isInvoice ?? false;
+    final invoiceNo = existing?.invoiceNo ?? '';
+    final paymentReceived = isInvoice ? existing?.paymentReceived ?? 0.0 : 0.0;
+    final discountPercent = isInvoice ? existing?.discountPercent ?? 0.0 : 0.0;
+    final grandTotal = isInvoice
+        ? subtotal * (1 - discountPercent / 100)
+        : subtotal;
+    final remainingPayment = isInvoice
+        ? (grandTotal - paymentReceived).clamp(0, grandTotal).toDouble()
+        : subtotal;
 
     final placeholders = <String, String>{
       'client_name': clientName,
@@ -700,7 +718,7 @@ class QuotationController extends StateNotifier<QuotationState> {
       'quantity_description': selectedPackage.quantityDescription,
       'system_type': state.systemType,
       'subtotal': _currency.format(subtotal),
-      'grand_total': _currency.format(subtotal),
+      'grand_total': _currency.format(grandTotal),
       'package_name': selectedPackage.name,
     };
 
@@ -714,7 +732,7 @@ class QuotationController extends StateNotifier<QuotationState> {
       lineItems: [...lineItems, ...optionalLines],
       optionalItems: selectedOptionals,
       subtotal: subtotal,
-      grandTotal: subtotal,
+      grandTotal: grandTotal,
       warranty: profile.warranty,
       terms: profile.terms,
       globalSections: _invoicePolicySections,
@@ -723,16 +741,23 @@ class QuotationController extends StateNotifier<QuotationState> {
         profile.template.sourceMarkup,
         placeholders,
       ),
-      paymentReceived: 0,
-      remainingPayment: subtotal,
+      isInvoice: isInvoice,
+      invoiceNo: invoiceNo,
+      paymentReceived: paymentReceived,
+      remainingPayment: remainingPayment,
+      discountPercent: discountPercent,
     );
 
+    _editingDocument = quotation;
     state = state.copyWith(generatedQuotation: quotation);
 
     await _historyService.save(quotation);
   }
 
-  Future<void> convertToInvoice({required double paymentReceived}) async {
+  Future<void> convertToInvoice({
+    required double paymentReceived,
+    double discountAmount = 0,
+  }) async {
     final current = state.generatedQuotation;
     if (current == null) {
       return;
@@ -740,10 +765,19 @@ class QuotationController extends StateNotifier<QuotationState> {
 
     final additionalPayment = paymentReceived < 0 ? 0.0 : paymentReceived;
     final previousReceived = current.isInvoice ? current.paymentReceived : 0.0;
-    final safeReceived = (previousReceived + additionalPayment)
-        .clamp(0, current.grandTotal)
-        .toDouble();
-    await _applyInvoicePayment(current, safeReceived);
+    final safeDiscount = _discountPercentFromAmount(
+      current.subtotal,
+      discountAmount,
+    );
+    final discountedGrandTotal = current.subtotal * (1 - safeDiscount / 100);
+    final safeReceived =
+        ((previousReceived + additionalPayment).clamp(0, discountedGrandTotal)
+            as double);
+    await _applyInvoicePayment(
+      current,
+      safeReceived,
+      discountPercent: safeDiscount,
+    );
   }
 
   Future<void> updateInvoicePaymentReceived({
@@ -757,23 +791,60 @@ class QuotationController extends StateNotifier<QuotationState> {
     final safeReceived = paymentReceived
         .clamp(0, current.grandTotal)
         .toDouble();
-    await _applyInvoicePayment(current, safeReceived);
+    await _applyInvoicePayment(
+      current,
+      safeReceived,
+      discountPercent: current.discountPercent,
+    );
+  }
+
+  Future<void> updateInvoiceDiscount({required double discountAmount}) async {
+    final current = state.generatedQuotation;
+    if (current == null || !current.isInvoice) {
+      return;
+    }
+    final safeDiscount = _discountPercentFromAmount(
+      current.subtotal,
+      discountAmount,
+    );
+    await _applyInvoicePayment(
+      current,
+      current.paymentReceived,
+      discountPercent: safeDiscount,
+    );
+  }
+
+  double _discountPercentFromAmount(double subtotal, double discountAmount) {
+    if (subtotal <= 0) {
+      return 0;
+    }
+
+    final safeAmount = discountAmount.clamp(0, subtotal).toDouble();
+    return (safeAmount / subtotal) * 100;
   }
 
   Future<void> _applyInvoicePayment(
     GeneratedQuotation current,
-    double safeReceived,
-  ) async {
-    final remaining = (current.grandTotal - safeReceived)
-        .clamp(0, current.grandTotal)
+    double safeReceived, {
+    double discountPercent = 0,
+  }) async {
+    final discountedGrandTotal = current.subtotal * (1 - discountPercent / 100);
+    final remaining = (discountedGrandTotal - safeReceived)
+        .clamp(0, discountedGrandTotal)
         .toDouble();
     final invoiceNo = current.invoiceNo.isEmpty
         ? 'INV-${current.quotationNo.substring(5)}'
         : current.invoiceNo;
 
+    final discountAmount = current.subtotal * discountPercent / 100;
     final updatedPlaceholders = {
       ...current.placeholderValues,
       'invoice_no': invoiceNo,
+      'discount_percent': discountPercent.toStringAsFixed(
+        discountPercent.truncateToDouble() == discountPercent ? 0 : 1,
+      ),
+      'discount_amount': _currency.format(discountAmount),
+      'grand_total': _currency.format(discountedGrandTotal),
       'payment_received': _currency.format(safeReceived),
       'remaining_payment': _currency.format(remaining),
     };
@@ -781,6 +852,8 @@ class QuotationController extends StateNotifier<QuotationState> {
     final updated = current.copyWith(
       isInvoice: true,
       invoiceNo: invoiceNo,
+      discountPercent: discountPercent,
+      grandTotal: discountedGrandTotal,
       paymentReceived: safeReceived,
       remainingPayment: remaining,
       placeholderValues: updatedPlaceholders,
@@ -790,6 +863,7 @@ class QuotationController extends StateNotifier<QuotationState> {
       _consumeInventoryForInvoice(updated);
     }
 
+    _editingDocument = updated;
     state = state.copyWith(generatedQuotation: updated);
     await _historyService.save(updated);
   }

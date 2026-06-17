@@ -248,6 +248,7 @@ class GeneratedQuotation {
     this.invoiceNo = '',
     this.paymentReceived = 0,
     this.remainingPayment = 0,
+    this.discountPercent = 0,
   });
 
   final String quotationNo;
@@ -259,6 +260,8 @@ class GeneratedQuotation {
   final List<QuotationLine> lineItems;
   final List<OptionalItem> optionalItems;
   final double subtotal;
+  final double discountPercent;
+  double get discountAmount => subtotal * discountPercent / 100;
   final double grandTotal;
   final String warranty;
   final List<String> terms;
@@ -276,6 +279,8 @@ class GeneratedQuotation {
     double? paymentReceived,
     double? remainingPayment,
     Map<String, String>? placeholderValues,
+    double? discountPercent,
+    double? grandTotal,
   }) {
     return GeneratedQuotation(
       quotationNo: quotationNo,
@@ -287,7 +292,8 @@ class GeneratedQuotation {
       lineItems: lineItems,
       optionalItems: optionalItems,
       subtotal: subtotal,
-      grandTotal: grandTotal,
+      discountPercent: discountPercent ?? this.discountPercent,
+      grandTotal: grandTotal ?? this.grandTotal,
       warranty: warranty,
       terms: terms,
       globalSections: globalSections,
@@ -311,6 +317,7 @@ class GeneratedQuotation {
       'lineItems': lineItems.map((item) => item.toMap()).toList(),
       'optionalItems': optionalItems.map((item) => item.toMap()).toList(),
       'subtotal': subtotal,
+      'discountPercent': discountPercent,
       'grandTotal': grandTotal,
       'warranty': warranty,
       'terms': terms,
@@ -346,6 +353,7 @@ class GeneratedQuotation {
           .map((item) => OptionalItem.fromMap(item as Map<dynamic, dynamic>))
           .toList(),
       subtotal: (map['subtotal'] as num?)?.toDouble() ?? 0,
+      discountPercent: (map['discountPercent'] as num?)?.toDouble() ?? 0,
       grandTotal: (map['grandTotal'] as num?)?.toDouble() ?? 0,
       warranty: map['warranty'] as String? ?? '',
       terms: (map['terms'] as List<dynamic>? ?? const [])

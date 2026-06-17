@@ -62,10 +62,15 @@ class DashboardScreen extends ConsumerWidget {
               final records =
                   recordsAsync.valueOrNull ?? const <InvoiceRecord>[];
               final invoices = _latestInvoiceRecords(records);
+              final totalReceivable = invoices.fold<double>(
+                0,
+                (sum, item) => sum + item.remainingPayment,
+              );
               final thisMonth = summary.currentMonthReport;
               final previousMonth = summary.previousMonthReport;
 
-              final currentProfit = thisMonth.profit;
+              final currentProfit =
+                  summary.totalSales - summary.totalExpenses - totalReceivable;
               final previousProfit = previousMonth?.profit ?? 0;
               final profitDelta = previousProfit == 0
                   ? 'Reset monthly'
@@ -86,12 +91,19 @@ class DashboardScreen extends ConsumerWidget {
                   icon: Icons.money_off_csred_rounded,
                 ),
                 (
-                  label: thisMonth.profit >= 0
+                  label: 'Total Receivable',
+                  value: money.format(totalReceivable),
+                  delta:
+                      '${invoices.where((item) => item.remainingPayment > 0).length} invoices',
+                  icon: Icons.account_balance_wallet_rounded,
+                ),
+                (
+                  label: currentProfit >= 0
                       ? 'This Month Profit'
                       : 'This Month Loss',
-                  value: money.format(thisMonth.profit.abs()),
+                  value: money.format(currentProfit.abs()),
                   delta: profitDelta,
-                  icon: thisMonth.profit >= 0
+                  icon: currentProfit >= 0
                       ? Icons.trending_up_rounded
                       : Icons.trending_down_rounded,
                 ),

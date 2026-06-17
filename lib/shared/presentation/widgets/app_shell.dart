@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/theme/app_theme.dart';
 import '../../../core/data/demo_data.dart';
+import '../../../core/services/app_mode_service.dart';
+import '../../../features/invoices/application/invoice_history_service.dart';
 import 'glass_panel.dart';
 
 class AppShell extends ConsumerWidget {
@@ -36,7 +38,20 @@ class AppShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final logoBytes = ref.watch(invoiceLogoBytesProvider);
+    ref.watch(invoiceBusinessDetailsProvider);
+    ref.watch(invoicePolicySectionsProvider);
+    ref.watch(enabledServicesProvider);
+    ref.watch(customServiceProfilesProvider);
+    ref.watch(serviceCatalogEditsProvider);
+    ref.watch(invoiceHistorySyncProvider);
+    final offlineMode = ref.watch(appModeProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final routes = offlineMode ? const ['/invoices'] : _routes;
+    final destinations = offlineMode
+        ? const [(label: 'Invoices', icon: Icons.request_quote_rounded)]
+        : _destinations;
+    final hasNavigation = destinations.length >= 2;
+    final selectedIndex = offlineMode ? 0 : currentIndex;
 
     return Scaffold(
       body: Container(
@@ -65,7 +80,20 @@ class AppShell extends ConsumerWidget {
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
                 child: Column(
                   children: [
-                    const _HeaderBar(),
+                    _HeaderBar(
+                      offlineMode: offlineMode,
+                      onExitOfflineMode: () async {
+                        await ref
+                            .read(invoiceHistoryServiceProvider)
+                            .syncPendingToCloud();
+                        await ref
+                            .read(appModeProvider.notifier)
+                            .setOfflineInvoiceMode(false);
+                        if (context.mounted) {
+                          context.go('/login');
+                        }
+                      },
+                    ),
                     const SizedBox(height: 20),
                     Expanded(
                       child: AnimatedSwitcher(
@@ -77,16 +105,16 @@ class AppShell extends ConsumerWidget {
                 ),
               );
 
-              if (wide) {
+              if (wide && hasNavigation) {
                 return Row(
                   children: [
                     Padding(
                       padding: const EdgeInsets.all(20),
                       child: GlassPanel(
                         child: NavigationRail(
-                          selectedIndex: currentIndex,
+                          selectedIndex: selectedIndex,
                           onDestinationSelected: (index) =>
-                              context.go(_routes[index]),
+                              context.go(routes[index]),
                           extended: true,
                           leading: Padding(
                             padding: const EdgeInsets.only(bottom: 24),
@@ -130,10 +158,25 @@ class AppShell extends ConsumerWidget {
                                   'RLX Invoice',
                                   style: Theme.of(context).textTheme.titleLarge,
                                 ),
+                                if (offlineMode) ...[
+                                  const SizedBox(height: 12),
+                                  TextButton.icon(
+                                    onPressed: () async {
+                                      await ref
+                                          .read(appModeProvider.notifier)
+                                          .setOfflineInvoiceMode(false);
+                                      if (context.mounted) {
+                                        context.go('/login');
+                                      }
+                                    },
+                                    icon: const Icon(Icons.login_rounded),
+                                    label: const Text('Use online login'),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
-                          destinations: _destinations
+                          destinations: destinations
                               .map(
                                 (item) => NavigationRailDestination(
                                   icon: Icon(item.icon),
@@ -149,6 +192,10 @@ class AppShell extends ConsumerWidget {
                 );
               }
 
+              if (!hasNavigation) {
+                return Column(children: [Expanded(child: content)]);
+              }
+
               return Column(
                 children: [
                   Expanded(child: content),
@@ -159,11 +206,11 @@ class AppShell extends ConsumerWidget {
                       child: NavigationBar(
                         labelBehavior:
                             NavigationDestinationLabelBehavior.alwaysHide,
-                        selectedIndex: currentIndex,
+                        selectedIndex: selectedIndex,
                         onDestinationSelected: (index) =>
-                            context.go(_routes[index]),
+                            context.go(routes[index]),
                         height: 64,
-                        destinations: _destinations
+                        destinations: destinations
                             .map(
                               (item) => NavigationDestination(
                                 icon: Icon(item.icon, size: 24),
@@ -185,7 +232,13 @@ class AppShell extends ConsumerWidget {
 }
 
 class _HeaderBar extends StatelessWidget {
-  const _HeaderBar();
+  const _HeaderBar({
+    required this.offlineMode,
+    required this.onExitOfflineMode,
+  });
+
+  final bool offlineMode;
+  final VoidCallback onExitOfflineMode;
 
   @override
   Widget build(BuildContext context) {
@@ -216,6 +269,14 @@ class _HeaderBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
+          if (offlineMode) ...[
+            TextButton.icon(
+              onPressed: onExitOfflineMode,
+              icon: const Icon(Icons.logout_rounded),
+              label: const Text('Exit offline mode'),
+            ),
+            const SizedBox(width: 8),
+          ],
           Container(
             decoration: BoxDecoration(
               color: AppTheme.accent.withValues(alpha: 0.14),

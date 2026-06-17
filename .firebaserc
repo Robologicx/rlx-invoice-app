@@ -1,0 +1,17 @@
+{
+  "projects": {
+    "default": "rlx-invoice"
+  },
+  "targets": {
+    "rlx-invoice": {
+      "hosting": {
+        "admin": [
+          "admin-robologicx-com"
+        ],
+        "www": [
+          "www-robologicx-com"
+        ]
+      }
+    }
+  }
+}

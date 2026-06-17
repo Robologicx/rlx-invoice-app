@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/data/demo_data.dart';
+import '../../../core/services/app_mode_service.dart';
 import '../../../core/services/firebase_auth_service.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -19,6 +22,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _isLoading = false;
   String? _errorMessage;
   bool _obscurePassword = true;
+  late bool _offlineMode;
+
+  @override
+  void initState() {
+    super.initState();
+    _offlineMode = ref.read(appModeProvider);
+  }
 
   @override
   void dispose() {
@@ -39,6 +49,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     try {
       final authService = ref.read(firebaseAuthServiceProvider);
+      final appMode = ref.read(appModeProvider.notifier);
 
       if (_isLogin) {
         await authService.login(
@@ -53,9 +64,40 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         );
       }
 
+      await hydrateAppSettingsFromCloud();
+
+      await appMode.setOfflineInvoiceMode(false);
+
       if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/');
+        context.go('/');
       }
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _errorMessage = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _continueOffline() async {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _errorMessage = null;
+      _isLoading = true;
+    });
+
+    try {
+      await ref.read(appModeProvider.notifier).setOfflineInvoiceMode(true);
+      if (!mounted) {
+        return;
+      }
+      context.go('/invoices');
     } catch (e) {
       if (!mounted) {
         return;
@@ -98,64 +140,100 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: 40),
 
-                // Email field
-                TextField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: InputDecoration(
-                    labelText: 'Email',
-                    prefixIcon: const Icon(Icons.email_outlined),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    enabled: !_isLoading,
+                SwitchListTile.adaptive(
+                  value: _offlineMode,
+                  onChanged: _isLoading
+                      ? null
+                      : (value) {
+                          setState(() {
+                            _offlineMode = value;
+                            _errorMessage = null;
+                          });
+                        },
+                  title: const Text('Offline invoice mode'),
+                  subtitle: const Text(
+                    'Invoices only. Saves to this device and does not use cloud sync.',
                   ),
+                  contentPadding: EdgeInsets.zero,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
 
-                // Display name field (sign up only)
-                if (!_isLogin)
-                  Column(
-                    children: [
-                      TextField(
-                        controller: _displayNameController,
-                        decoration: InputDecoration(
-                          labelText: 'Full Name',
-                          prefixIcon: const Icon(Icons.person_outline),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
+                if (_offlineMode) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      border: Border.all(color: Colors.blue.shade200),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      'Offline mode keeps invoice data on the phone. Projects, inventory, finance, team, and cloud history are disabled until you sign in normally.',
+                      style: TextStyle(color: Colors.blue.shade900),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
+                if (!_offlineMode) ...[
+                  // Email field
+                  TextField(
+                    controller: _emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: InputDecoration(
+                      labelText: 'Email',
+                      prefixIcon: const Icon(Icons.email_outlined),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      enabled: !_isLoading,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Display name field (sign up only)
+                  if (!_isLogin)
+                    Column(
+                      children: [
+                        TextField(
+                          controller: _displayNameController,
+                          decoration: InputDecoration(
+                            labelText: 'Full Name',
+                            prefixIcon: const Icon(Icons.person_outline),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            enabled: !_isLoading,
                           ),
-                          enabled: !_isLoading,
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-                  ),
+                        const SizedBox(height: 16),
+                      ],
+                    ),
 
-                // Password field
-                TextField(
-                  controller: _passwordController,
-                  obscureText: _obscurePassword,
-                  decoration: InputDecoration(
-                    labelText: 'Password',
-                    prefixIcon: const Icon(Icons.lock_outline),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
+                  // Password field
+                  TextField(
+                    controller: _passwordController,
+                    obscureText: _obscurePassword,
+                    decoration: InputDecoration(
+                      labelText: 'Password',
+                      prefixIcon: const Icon(Icons.lock_outline),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                        ),
+                        onPressed: () {
+                          setState(() => _obscurePassword = !_obscurePassword);
+                        },
                       ),
-                      onPressed: () {
-                        setState(() => _obscurePassword = !_obscurePassword);
-                      },
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      enabled: !_isLoading,
                     ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    enabled: !_isLoading,
                   ),
-                ),
-                const SizedBox(height: 24),
+                  const SizedBox(height: 24),
+                ],
 
                 // Error message
                 if (_errorMessage != null)
@@ -173,64 +251,95 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                 const SizedBox(height: 24),
 
-                // Login/Sign up button
-                ElevatedButton(
-                  onPressed: _isLoading ? null : _handleAuth,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white,
-                            ),
-                          ),
-                        )
-                      : Text(
-                          _isLogin ? 'Login' : 'Sign Up',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                ),
-                const SizedBox(height: 16),
-
-                // Toggle between login and sign up
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      _isLogin
-                          ? 'Don\'t have an account? '
-                          : 'Already have an account? ',
-                      style: TextStyle(color: Colors.grey[600]),
-                    ),
-                    TextButton(
-                      onPressed: _isLoading
-                          ? null
-                          : () {
-                              setState(() {
-                                _isLogin = !_isLogin;
-                                _errorMessage = null;
-                              });
-                            },
-                      child: Text(
-                        _isLogin ? 'Sign Up' : 'Login',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
+                if (_offlineMode)
+                  ElevatedButton(
+                    onPressed: _isLoading ? null : _continueOffline,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                  ],
-                ),
+                    child: _isLoading
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
+                            ),
+                          )
+                        : const Text(
+                            'Start Offline Invoice Mode',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                  )
+                else
+                  ElevatedButton(
+                    onPressed: _isLoading ? null : _handleAuth,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
+                            ),
+                          )
+                        : Text(
+                            _isLogin ? 'Login' : 'Sign Up',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                  ),
+                const SizedBox(height: 16),
+
+                if (!_offlineMode)
+                  // Toggle between login and sign up
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        _isLogin
+                            ? 'Don\'t have an account? '
+                            : 'Already have an account? ',
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                      TextButton(
+                        onPressed: _isLoading
+                            ? null
+                            : () {
+                                setState(() {
+                                  _isLogin = !_isLogin;
+                                  _errorMessage = null;
+                                });
+                              },
+                        child: Text(
+                          _isLogin ? 'Sign Up' : 'Login',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
                 const SizedBox(height: 40),
               ],
             ),

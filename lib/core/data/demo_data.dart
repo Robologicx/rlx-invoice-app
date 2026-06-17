@@ -57,7 +57,7 @@ const _defaultInvoiceBusinessDetails = InvoiceBusinessDetails(
   address: 'Near NBP bank, Hussani Chowk, Bahawalpur',
   phone: '0301-8777220',
   email: 'info.robologicx@gmail.com',
-  website: 'www.robologicx.org',
+  website: 'www.admin.robologicx.com',
 );
 
 String? _activeUserId() => FirebaseAuth.instance.currentUser?.uid;
@@ -128,6 +128,28 @@ Future<void> _cacheSettingToHive(String key, dynamic value) async {
     return;
   }
   await Hive.box(LocalDatabase.appSettingsBox).put(scopedKey, value);
+}
+
+Future<void> hydrateAppSettingsFromCloud() async {
+  final ref = _settingsDocRef();
+  if (ref == null) {
+    return;
+  }
+
+  final snapshot = await ref.get();
+  final data = snapshot.data();
+  if (data == null) {
+    return;
+  }
+
+  final appSettings = data['appSettings'];
+  if (appSettings is! Map) {
+    return;
+  }
+
+  for (final entry in appSettings.entries) {
+    await _cacheSettingToHive(entry.key.toString(), entry.value);
+  }
 }
 
 class InvoiceBusinessDetails {
@@ -357,15 +379,14 @@ Set<ServiceCategory> _loadEnabledServices() {
 }
 
 Future<void> _saveEnabledServices(Set<ServiceCategory> categories) async {
-  if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
-    return Future.value();
-  }
   final scopedKey = _scopedSettingsKey(_enabledServicesKey);
   if (scopedKey == null) {
     return;
   }
   final data = categories.map((item) => item.name).toList();
-  await Hive.box(LocalDatabase.appSettingsBox).put(scopedKey, data);
+  if (Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
+    await Hive.box(LocalDatabase.appSettingsBox).put(scopedKey, data);
+  }
   await _mirrorSettingToFirestore(_enabledServicesKey, data);
 }
 
@@ -389,15 +410,14 @@ List<ServiceProfile> _loadCustomServiceProfiles() {
 }
 
 Future<void> _saveCustomServiceProfiles(List<ServiceProfile> profiles) async {
-  if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
-    return Future.value();
-  }
   final scopedKey = _scopedSettingsKey(_customServiceProfilesKey);
   if (scopedKey == null) {
     return;
   }
   final data = profiles.map(_serviceProfileToMap).toList();
-  await Hive.box(LocalDatabase.appSettingsBox).put(scopedKey, data);
+  if (Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
+    await Hive.box(LocalDatabase.appSettingsBox).put(scopedKey, data);
+  }
   await _mirrorSettingToFirestore(_customServiceProfilesKey, data);
 }
 
@@ -545,9 +565,6 @@ ServiceCatalogEdits _loadServiceCatalogEdits() {
 }
 
 Future<void> _saveServiceCatalogEdits(ServiceCatalogEdits edits) async {
-  if (!Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
-    return Future.value();
-  }
   final scopedKey = _scopedSettingsKey(_serviceCatalogEditsKey);
   if (scopedKey == null) {
     return;
@@ -584,7 +601,9 @@ Future<void> _saveServiceCatalogEdits(ServiceCatalogEdits edits) async {
     },
   };
 
-  await Hive.box(LocalDatabase.appSettingsBox).put(scopedKey, data);
+  if (Hive.isBoxOpen(LocalDatabase.appSettingsBox)) {
+    await Hive.box(LocalDatabase.appSettingsBox).put(scopedKey, data);
+  }
   await _mirrorSettingToFirestore(_serviceCatalogEditsKey, data);
 }
 
@@ -831,7 +850,42 @@ final invoiceLogoBytesProvider =
 
 class EnabledServicesController extends StateNotifier<Set<ServiceCategory>> {
   EnabledServicesController() : super(_loadEnabledServices()) {
-    unawaited(_hydrateFromCloud());
+    unawaited(_bootstrapCloudSync());
+  }
+
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _subscription;
+
+  Future<void> _bootstrapCloudSync() async {
+    final userDoc = _settingsDocRef();
+    if (userDoc == null) {
+      return;
+    }
+
+    await _applyCloudValue((await userDoc.get()).data());
+    _subscription = userDoc.snapshots().listen((event) {
+      unawaited(_applyCloudValue(event.data()));
+    });
+  }
+
+  Future<void> _applyCloudValue(Map<String, dynamic>? data) async {
+    final appSettings = data?['appSettings'];
+    if (appSettings is! Map) {
+      return;
+    }
+
+    final cloudValue = appSettings[_enabledServicesKey];
+    if (cloudValue is! List) {
+      return;
+    }
+
+    await _cacheSettingToHive(_enabledServicesKey, cloudValue);
+    state = _loadEnabledServices();
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _hydrateFromCloud() async {
@@ -883,7 +937,42 @@ final enabledServicesProvider =
 class CustomServiceProfilesController
     extends StateNotifier<List<ServiceProfile>> {
   CustomServiceProfilesController() : super(_loadCustomServiceProfiles()) {
-    unawaited(_hydrateFromCloud());
+    unawaited(_bootstrapCloudSync());
+  }
+
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _subscription;
+
+  Future<void> _bootstrapCloudSync() async {
+    final userDoc = _settingsDocRef();
+    if (userDoc == null) {
+      return;
+    }
+
+    await _applyCloudValue((await userDoc.get()).data());
+    _subscription = userDoc.snapshots().listen((event) {
+      unawaited(_applyCloudValue(event.data()));
+    });
+  }
+
+  Future<void> _applyCloudValue(Map<String, dynamic>? data) async {
+    final appSettings = data?['appSettings'];
+    if (appSettings is! Map) {
+      return;
+    }
+
+    final cloudValue = appSettings[_customServiceProfilesKey];
+    if (cloudValue is! List) {
+      return;
+    }
+
+    await _cacheSettingToHive(_customServiceProfilesKey, cloudValue);
+    state = _loadCustomServiceProfiles();
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _hydrateFromCloud() async {
@@ -1072,7 +1161,42 @@ class ServiceCatalogEdits {
 
 class ServiceCatalogEditsController extends StateNotifier<ServiceCatalogEdits> {
   ServiceCatalogEditsController() : super(_loadServiceCatalogEdits()) {
-    unawaited(_hydrateFromCloud());
+    unawaited(_bootstrapCloudSync());
+  }
+
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _subscription;
+
+  Future<void> _bootstrapCloudSync() async {
+    final userDoc = _settingsDocRef();
+    if (userDoc == null) {
+      return;
+    }
+
+    await _applyCloudValue((await userDoc.get()).data());
+    _subscription = userDoc.snapshots().listen((event) {
+      unawaited(_applyCloudValue(event.data()));
+    });
+  }
+
+  Future<void> _applyCloudValue(Map<String, dynamic>? data) async {
+    final appSettings = data?['appSettings'];
+    if (appSettings is! Map) {
+      return;
+    }
+
+    final cloudValue = appSettings[_serviceCatalogEditsKey];
+    if (cloudValue is! Map) {
+      return;
+    }
+
+    await _cacheSettingToHive(_serviceCatalogEditsKey, cloudValue);
+    state = _loadServiceCatalogEdits();
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _hydrateFromCloud() async {
