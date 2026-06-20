@@ -165,7 +165,7 @@ User (Web/Android)
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│ Firestore Database: rlx-invoice                     │
+│ Firestore Database: auto-invoicing-4176f                     │
 └─────────────────────────────────────────────────────┘
 
 Collection: /users
@@ -521,3 +521,4 @@ Result: All 3 devices always synchronized! 🎉
 **Last Updated**: May 17, 2026  
 **Platforms**: Web (Chrome), Android  
 **Cloud Provider**: Google Firebase  
+

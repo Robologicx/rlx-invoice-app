@@ -76,7 +76,7 @@ Firestore
 ### Step 1: Create Firebase Project
 1. Go to https://console.firebase.google.com
 2. Click "Create a new project"
-3. Name it (e.g., "rlx-invoice")
+3. Name it (e.g., "auto-invoicing-4176f")
 4. Wait for completion
 
 ### Step 2: Register Web App
@@ -300,3 +300,4 @@ If you need to revert to Hive:
 **Version**: 1.0.0  
 **Last Updated**: May 17, 2026  
 **Status**: Ready for Firebase Setup
+

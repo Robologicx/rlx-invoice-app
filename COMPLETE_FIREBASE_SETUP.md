@@ -11,7 +11,7 @@
 ### Go to Firebase Console
 1. Open: **https://console.firebase.google.com**
 2. Click **"Create a project"**
-3. Project name: `rlx-invoice`
+3. Project name: `auto-invoicing-4176f`
 4. Accept analytics (or disable if you prefer)
 5. Click **"Create Project"**
 6. Wait ~1 minute for project to initialize
@@ -29,9 +29,9 @@
 ```javascript
 const firebaseConfig = {
   apiKey: "AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-  authDomain: "rlx-invoice-xxxxx.firebaseapp.com",
-  projectId: "rlx-invoice-xxxxx",
-  storageBucket: "rlx-invoice-xxxxx.appspot.com",
+  authDomain: "auto-invoicing-4176f.firebaseapp.com",
+  projectId: "auto-invoicing-4176f",
+  storageBucket: "auto-invoicing-4176f.firebasestorage.app",
   messagingSenderId: "123456789012",
   appId: "1:123456789012:web:abcdefg123456789"
 };
@@ -72,9 +72,9 @@ class DefaultFirebaseOptions {
     apiKey: 'PASTE_YOUR_WEB_API_KEY_HERE',
     appId: '1:YOUR_PROJECT_NUMBER:web:YOUR_WEB_APP_ID',
     messagingSenderId: 'YOUR_WEB_MESSAGING_SENDER_ID',
-    projectId: 'rlx-invoice-xxxxx',
-    authDomain: 'rlx-invoice-xxxxx.firebaseapp.com',
-    storageBucket: 'rlx-invoice-xxxxx.appspot.com',
+    projectId: 'auto-invoicing-4176f',
+    authDomain: 'auto-invoicing-4176f.firebaseapp.com',
+    storageBucket: 'auto-invoicing-4176f.firebasestorage.app',
     measurementId: 'G-XXXXXXXXXXX',
   );
 
@@ -83,8 +83,8 @@ class DefaultFirebaseOptions {
     apiKey: 'PASTE_YOUR_ANDROID_API_KEY_HERE',
     appId: '1:YOUR_PROJECT_NUMBER:android:YOUR_ANDROID_APP_ID',
     messagingSenderId: 'YOUR_ANDROID_MESSAGING_SENDER_ID',
-    projectId: 'rlx-invoice-xxxxx',
-    storageBucket: 'rlx-invoice-xxxxx.appspot.com',
+    projectId: 'auto-invoicing-4176f',
+    storageBucket: 'auto-invoicing-4176f.firebasestorage.app',
   );
 
   static FirebaseOptions get currentPlatform {
@@ -111,7 +111,7 @@ From the config you copied in Step 2, map them like this:
 |---|---|
 | `apiKey` | `apiKey: '...'` |
 | `appId` | `appId: '1:PROJECT_NUMBER:web:WEB_APP_ID'` |
-| `projectId` | `projectId: 'rlx-invoice-xxxxx'` |
+| `projectId` | `projectId: 'auto-invoicing-4176f'` |
 | `authDomain` | `authDomain: '...'` |
 | `storageBucket` | `storageBucket: '...'` |
 | `messagingSenderId` | `messagingSenderId: '...'` |
@@ -288,7 +288,7 @@ Firestore Database
 **Solution:**
 1. Copy `projectId` exactly from Firebase Console
 2. Remove quotes if present
-3. Example: `rlx-invoice-a1b2c3d4e5f6` (not `"rlx-invoice..."`)
+3. Example: `auto-invoicing-4176f` (not `"your-project-id"`)
 
 ### ❌ Data Not Showing in Firestore
 **Solution:**
@@ -378,3 +378,4 @@ Next features you could add:
 **Status**: Ready to setup  
 **Estimated Time**: 10 minutes  
 **Cost**: FREE (forever on free tier)
+

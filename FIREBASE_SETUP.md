@@ -12,7 +12,7 @@ This document explains how to set up Firebase Firestore and Authentication for t
 
 1. Go to [Firebase Console](https://console.firebase.google.com)
 2. Click "Create a new project"
-3. Enter your project name (e.g., "rlx-invoice")
+3. Enter your project name (e.g., "auto-invoicing-4176f")
 4. Complete the setup wizard
 5. Wait for the project to be created
 
@@ -160,3 +160,4 @@ This will be implemented in a future update.
 ## Support
 
 For Firebase documentation, visit: https://firebase.flutter.dev/
+

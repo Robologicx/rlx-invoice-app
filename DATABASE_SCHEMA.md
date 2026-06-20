@@ -5,7 +5,7 @@ This document describes how data is organized in Firestore for the RLX Invoice a
 ## Overview
 
 ```
-Firestore Database (rlx-invoice)
+Firestore Database (auto-invoicing-4176f)
 ├── users/
 │   └── {userId}/
 │       ├── settings
@@ -426,3 +426,4 @@ For questions about data structure:
 **Last Updated**: May 17, 2026  
 **Status**: Production Ready  
 **Supported Platforms**: Web, Android
+

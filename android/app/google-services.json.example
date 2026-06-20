@@ -1,8 +1,9 @@
 {
-  "projectId": "rlx-invoice-xxxxx",
-  "storageBucket": "rlx-invoice-xxxxx.appspot.com",
+  "projectId": "auto-invoicing-4176f",
+  "storageBucket": "auto-invoicing-4176f.firebasestorage.app",
   "apiKey": "YOUR_ANDROID_API_KEY",
   "appId": "1:123456789:android:abcdef1234567890",
   "messagingSenderId": "123456789",
-  "databaseURL": "https://rlx-invoice-xxxxx.firebaseio.com"
+  "databaseURL": "https://auto-invoicing-4176f.firebaseio.com"
 }
+

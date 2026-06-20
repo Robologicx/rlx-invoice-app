@@ -132,8 +132,14 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                 if (name.isEmpty ||
                     quantity == null ||
                     price == null ||
-                    supplier.isEmpty ||
                     minStock == null) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Enter a product name, quantity, unit price, and low stock threshold.',
+                      ),
+                    ),
+                  );
                   return;
                 }
                 Navigator.of(dialogContext).pop(

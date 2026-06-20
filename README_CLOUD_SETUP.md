@@ -47,7 +47,7 @@ Choose where to start based on your needs:
 ## ⚡ Quick Start (TL;DR)
 
 1. **Open Firebase**: https://console.firebase.google.com
-2. **Create project** named `rlx-invoice`
+2. **Create project** named `auto-invoicing-4176f`
 3. **Add Web app** → Copy config
 4. **Enable Firestore** (test mode)
 5. **Enable Auth** (Email/Password)
@@ -427,3 +427,4 @@ BEFORE         YOU ARE HERE         AFTER
 **Cost**: FREE (forever on free tier)  
 
 **Let's go!** 🚀
+

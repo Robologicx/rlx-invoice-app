@@ -47,7 +47,7 @@ This will:
 If your domain isn't already connected:
 
 1. Go to [Firebase Console](https://console.firebase.google.com)
-2. Select project: **rlx-invoice**
+2. Select project: **auto-invoicing-4176f**
 3. Go to **Hosting** → **Domains**
 4. Click **Add custom domain**
 5. Enter: `www.admin.robologicx.com`
@@ -57,7 +57,7 @@ If your domain isn't already connected:
 
 ## 🔐 Firebase Project Details
 
-- **Project ID**: `rlx-invoice`
+- **Project ID**: `auto-invoicing-4176f`
 - **Hosting Target**: `admin` (maps to `admin-robologicx-com`)
 - **Redirect Target**: `www` (redirects to admin)
 
@@ -121,7 +121,7 @@ flutter run -d chrome
 If deployment fails, check:
 
 1. **Authentication**: `firebase login` and verify you're logged in
-2. **Project**: Confirm `firebase projects:list` shows **rlx-invoice** as active
+2. **Project**: Confirm `firebase projects:list` shows **auto-invoicing-4176f** as active
 3. **Build**: Ensure `build/web/` directory exists and contains `index.html`
 4. **DNS**: If using custom domain, verify DNS records are configured
 5. **Firestore**: Rules and database must be accessible with your Firebase credentials
@@ -135,4 +135,5 @@ Once live, users will access the app at:
 - **Business Details**: Updated to show `www.admin.robologicx.com`
 
 All other functionality remains unchanged. The app uses your Firestore database which you'll access via Firebase Console.
+
 

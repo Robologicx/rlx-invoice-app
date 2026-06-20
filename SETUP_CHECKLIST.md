@@ -8,7 +8,7 @@
 ## During Setup
 
 ### Firebase Console
-- [ ] Created Firebase project named `rlx-invoice`
+- [ ] Created Firebase project named `auto-invoicing-4176f`
 - [ ] Registered Web app
 - [ ] Created Firestore Database (test mode)
 - [ ] Copied Web Firebase config
@@ -83,9 +83,9 @@
 Save these for later reference:
 
 ```
-Project ID: rlx-invoice-xxxxx
-Firebase URL: https://rlx-invoice-xxxxx.firebaseapp.com
-Storage Bucket: rlx-invoice-xxxxx.appspot.com
+Project ID: auto-invoicing-4176f
+Firebase URL: https://auto-invoicing-4176f.firebaseapp.com
+Storage Bucket: auto-invoicing-4176f.firebasestorage.app
 Android Package: com.robologicx.robologicx_workshop_app
 Web Domain: localhost:52437 (or your domain)
 ```
@@ -113,3 +113,4 @@ Web Domain: localhost:52437 (or your domain)
 **Status**: Use this as your setup confirmation  
 **Mark items as completed**: ✅ (copy-paste to mark done)  
 **Stuck?**: Check `COMPLETE_FIREBASE_SETUP.md` for detailed steps
+

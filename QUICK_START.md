@@ -5,7 +5,7 @@
 ### Step 1: Create Firebase Project (2 min)
 1. Open https://console.firebase.google.com
 2. Click **"Create a new project"**
-3. Name it `rlx-invoice`
+3. Name it `auto-invoicing-4176f`
 4. Accept defaults, click **"Create"**
 5. Wait for project to load
 
@@ -23,9 +23,9 @@ static const FirebaseOptions web = FirebaseOptions(
   apiKey: 'YOUR_API_KEY',
   appId: '1:YOUR_PROJECT_NUMBER:web:YOUR_WEB_APP_ID',
   messagingSenderId: 'YOUR_MESSAGING_SENDER_ID',
-  projectId: 'rlx-invoice',
-  authDomain: 'rlx-invoice.firebaseapp.com',
-  storageBucket: 'rlx-invoice.appspot.com',
+  projectId: 'auto-invoicing-4176f',
+  authDomain: 'auto-invoicing-4176f.firebaseapp.com',
+  storageBucket: 'auto-invoicing-4176f.firebasestorage.app',
   measurementId: 'YOUR_MEASUREMENT_ID',
 );
 ```
@@ -106,3 +106,4 @@ Click **"Publish"** after pasting.
 ---
 
 **Need help?** Check `FIREBASE_SETUP.md` for detailed instructions.
+

@@ -25,7 +25,7 @@ After setup, your app will:
 1. Click **"Create a project"**
 2. Project name: Copy-paste exactly:
    ```
-   rlx-invoice
+   auto-invoicing-4176f
    ```
 3. Click **"Create Project"** button
 4. ⏳ Wait 1-2 minutes...
@@ -121,9 +121,9 @@ class DefaultFirebaseOptions {
     apiKey: 'COPY_YOUR_API_KEY_HERE',
     appId: '1:12345:web:abc123',
     messagingSenderId: 'YOUR_SENDER_ID',
-    projectId: 'rlx-invoice',
-    authDomain: 'rlx-invoice.firebaseapp.com',
-    storageBucket: 'rlx-invoice.appspot.com',
+    projectId: 'auto-invoicing-4176f',
+    authDomain: 'auto-invoicing-4176f.firebaseapp.com',
+    storageBucket: 'auto-invoicing-4176f.firebasestorage.app',
     measurementId: 'G-ABC123',
   );
 
@@ -131,8 +131,8 @@ class DefaultFirebaseOptions {
     apiKey: 'COPY_YOUR_ANDROID_API_KEY',
     appId: '1:12345:android:abc123',
     messagingSenderId: 'YOUR_SENDER_ID',
-    projectId: 'rlx-invoice',
-    storageBucket: 'rlx-invoice.appspot.com',
+    projectId: 'auto-invoicing-4176f',
+    storageBucket: 'auto-invoicing-4176f.firebasestorage.app',
   );
 
   static FirebaseOptions get currentPlatform {
@@ -157,9 +157,9 @@ From the config you copied in Step 3️⃣:
 |---|---|
 | `"apiKey": "AIza..."` | `apiKey: 'AIza...'` |
 | `"appId": "1:123:web:abc"` | `appId: '1:123:web:abc'` |
-| `"projectId": "rlx-invoice"` | `projectId: 'rlx-invoice'` |
-| `"authDomain": "rlx-invoice.firebaseapp.com"` | `authDomain: 'rlx-invoice.firebaseapp.com'` |
-| `"storageBucket": "rlx-invoice.appspot.com"` | `storageBucket: 'rlx-invoice.appspot.com'` |
+| `"projectId": "auto-invoicing-4176f"` | `projectId: 'auto-invoicing-4176f'` |
+| `"authDomain": "auto-invoicing-4176f.firebaseapp.com"` | `authDomain: 'auto-invoicing-4176f.firebaseapp.com'` |
+| `"storageBucket": "auto-invoicing-4176f.firebasestorage.app"` | `storageBucket: 'auto-invoicing-4176f.firebasestorage.app'` |
 | `"messagingSenderId": "123456789"` | `messagingSenderId: '123456789'` |
 | `"measurementId": "G-ABC123"` | `measurementId: 'G-ABC123'` |
 
@@ -291,3 +291,4 @@ This is safe for production! ✨
 
 **Total Time Spent**: ~10 minutes  
 **Next**: Celebrate! 🎊 You now have a cloud-powered invoicing app!
+
