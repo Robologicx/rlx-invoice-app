@@ -609,9 +609,7 @@ Future<void> _saveServiceCatalogEdits(ServiceCatalogEdits edits) async {
 
 class InvoicePolicySectionsController
     extends StateNotifier<List<InvoicePolicySection>> {
-  InvoicePolicySectionsController() : super(_loadInvoicePolicySections()) {
-    unawaited(_hydrateFromCloud());
-  }
+  InvoicePolicySectionsController() : super(_loadInvoicePolicySections());
 
   static const _settingsKey = 'invoice_policy_sections';
 
@@ -621,16 +619,6 @@ class InvoicePolicySectionsController
         if (section.title == title) section.copyWith(items: items) else section,
     ];
     _saveInvoicePolicySections(state);
-  }
-
-  Future<void> _hydrateFromCloud() async {
-    final cloudValue = await _readSettingFromFirestore(_settingsKey);
-    if (cloudValue is! List) {
-      return;
-    }
-
-    await _cacheSettingToHive(_settingsKey, cloudValue);
-    state = _loadInvoicePolicySections();
   }
 
   static List<InvoicePolicySection> _loadInvoicePolicySections() {
@@ -775,9 +763,7 @@ final invoiceBusinessDetailsProvider =
     });
 
 class InvoiceLogoController extends StateNotifier<Uint8List?> {
-  InvoiceLogoController() : super(_loadLogo()) {
-    unawaited(_hydrateFromCloud());
-  }
+  InvoiceLogoController() : super(_loadLogo());
 
   void setLogoBytes(Uint8List bytes) {
     state = bytes;
@@ -795,16 +781,6 @@ class InvoiceLogoController extends StateNotifier<Uint8List?> {
     }
     Hive.box(LocalDatabase.appSettingsBox).delete(scopedKey);
     unawaited(_removeSettingFromFirestore(invoiceLogoSettingsKey));
-  }
-
-  Future<void> _hydrateFromCloud() async {
-    final cloudValue = await _readSettingFromFirestore(invoiceLogoSettingsKey);
-    if (cloudValue is! Uint8List && cloudValue is! String) {
-      return;
-    }
-
-    await _cacheSettingToHive(invoiceLogoSettingsKey, cloudValue);
-    state = _loadLogo();
   }
 
   static Uint8List? _loadLogo() {
@@ -888,16 +864,6 @@ class EnabledServicesController extends StateNotifier<Set<ServiceCategory>> {
     super.dispose();
   }
 
-  Future<void> _hydrateFromCloud() async {
-    final cloudValue = await _readSettingFromFirestore(_enabledServicesKey);
-    if (cloudValue is! List) {
-      return;
-    }
-
-    await _cacheSettingToHive(_enabledServicesKey, cloudValue);
-    state = _loadEnabledServices();
-  }
-
   void toggle(ServiceCategory category) {
     if (state.contains(category)) {
       if (state.length == 1) {
@@ -973,18 +939,6 @@ class CustomServiceProfilesController
   void dispose() {
     _subscription?.cancel();
     super.dispose();
-  }
-
-  Future<void> _hydrateFromCloud() async {
-    final cloudValue = await _readSettingFromFirestore(
-      _customServiceProfilesKey,
-    );
-    if (cloudValue is! List) {
-      return;
-    }
-
-    await _cacheSettingToHive(_customServiceProfilesKey, cloudValue);
-    state = _loadCustomServiceProfiles();
   }
 
   ServiceProfile? addService({
@@ -1197,16 +1151,6 @@ class ServiceCatalogEditsController extends StateNotifier<ServiceCatalogEdits> {
   void dispose() {
     _subscription?.cancel();
     super.dispose();
-  }
-
-  Future<void> _hydrateFromCloud() async {
-    final cloudValue = await _readSettingFromFirestore(_serviceCatalogEditsKey);
-    if (cloudValue is! Map) {
-      return;
-    }
-
-    await _cacheSettingToHive(_serviceCatalogEditsKey, cloudValue);
-    state = _loadServiceCatalogEdits();
   }
 
   void setPackageEdits({

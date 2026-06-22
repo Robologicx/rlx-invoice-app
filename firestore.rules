@@ -1,17 +1,132 @@
+// Firestore Security Rules for Multi-Branch Franchise System
+// This file defines access control for Super Admin Panel and Branch-isolated data
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow users to read/write their own user document and all sub-collections
-    match /users/{uid} {
-      allow read, write: if request.auth.uid == uid;
-      match /{document=**} {
-        allow read, write: if request.auth.uid == uid;
-      }
+    function userDocPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
     }
-    
-    // Deny all other access
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() &&
+          exists(userDocPath()) &&
+          get(userDocPath()).data.role == 'super_admin';
+    }
+
+    function getUserBranchId() {
+      return exists(userDocPath())
+          ? get(userDocPath()).data.branchId
+          : null;
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow write: if isSuperAdmin() ||
+          (request.auth.uid == userId && (
+            // User updating own existing profile
+            exists(/databases/$(database)/documents/users/$(userId)) ||
+            // First-time self profile creation
+            request.resource.data.uid == request.auth.uid
+          ));
+
+      match /data/{document=**} {
+        allow read: if request.auth.uid == userId || isSuperAdmin();
+        allow write: if request.auth.uid == userId;
+      }
+      
+        match /invoice_history/{documentId} {
+          allow read, write: if request.auth.uid == userId || isSuperAdmin();
+        }
+
+        match /expenses/{documentId} {
+          allow read, write: if request.auth.uid == userId || isSuperAdmin();
+        }
+
+        match /fixed_monthly_expenses/{documentId} {
+          allow read, write: if request.auth.uid == userId || isSuperAdmin();
+        }
+
+        match /team_members/{documentId} {
+          allow read, write: if request.auth.uid == userId || isSuperAdmin();
+        }
+    }
+
+    match /branches/{branchId} {
+      allow read, create, update, delete: if isSuperAdmin();
+    }
+
+    match /royalties/{royaltyId} {
+      allow read, create, update, delete: if isSuperAdmin();
+    }
+
+    match /branch_analytics/{analyticsId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    match /users/{userId}/data/{documentId} {
+      allow read: if isSuperAdmin() ||
+          (request.auth.uid == userId &&
+              (resource.data.branchId == null ||
+                  resource.data.branchId == getUserBranchId()));
+
+      allow write: if request.auth.uid == userId &&
+          (resource.data.branchId == null ||
+              resource.data.branchId == getUserBranchId());
+    }
+
     match /{document=**} {
       allow read, write: if false;
+    }
+
+    // ── Flat top-level business collections ──────────────────────────────
+    // All documents carry a franchiseId field.
+    // A user may read/write only documents whose franchiseId matches their
+    // own branchId (or their uid when no branchId is set).
+
+    function userFranchiseId() {
+      return exists(userDocPath()) &&
+              get(userDocPath()).data.branchId is string &&
+              get(userDocPath()).data.branchId != ''
+          ? get(userDocPath()).data.branchId
+          : request.auth.uid;
+    }
+
+    function ownsDocument() {
+      return resource == null || resource.data.franchiseId == userFranchiseId() || isSuperAdmin();
+    }
+
+    function ownsNewDocument() {
+      return request.resource.data.franchiseId == userFranchiseId() || isSuperAdmin();
+    }
+
+    match /products/{productId} {
+      allow read: if isAuthenticated() && ownsDocument();
+      allow create: if isAuthenticated() && ownsNewDocument();
+      allow update, delete: if isAuthenticated() && ownsDocument();
+    }
+
+    // movements are append-only — no update or delete
+    match /movements/{movementId} {
+      allow read: if isAuthenticated() && ownsDocument();
+      allow create: if isAuthenticated() && ownsNewDocument();
+      allow update, delete: if isSuperAdmin();
+    }
+
+    match /invoices/{invoiceId} {
+      allow read: if isAuthenticated() && ownsDocument();
+      allow create: if isAuthenticated() && ownsNewDocument();
+      allow update, delete: if isAuthenticated() && ownsDocument();
+    }
+
+    match /expenses/{expenseId} {
+      allow read: if isAuthenticated() && ownsDocument();
+      allow create: if isAuthenticated() && ownsNewDocument();
+      allow update, delete: if isAuthenticated() && ownsDocument();
     }
   }
 }

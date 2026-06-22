@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/models/erp_models.dart';
 import '../../../core/services/firebase_auth_service.dart';
+import '../../../database/local_database.dart';
 import '../../finance/application/expense_service.dart';
 
 class TeamService {
@@ -33,13 +37,35 @@ class TeamService {
       return;
     }
 
-    yield* _collection(userId).snapshots().map(
-      (snapshot) =>
-          snapshot.docs.map((doc) => TeamMember.fromMap(doc.data())).toList()
-            ..sort(
-              (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-            ),
+    // Watch local Hive box first for immediate UI feedback
+    if (Hive.isBoxOpen(LocalDatabase.teamMembersBox)) {
+      final box = Hive.box<Map>(LocalDatabase.teamMembersBox);
+      yield _localMembers(box);
+      yield* box.watch().map((_) => _localMembers(box));
+      return;
+    }
+
+    // Fallback to Firestore
+    yield const [];
+    try {
+      yield* _collection(userId).snapshots().map(
+        (snapshot) =>
+            snapshot.docs.map((doc) => TeamMember.fromMap(doc.data())).toList()
+              ..sort(
+                (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+              ),
+      );
+    } catch (_) {
+      yield const [];
+    }
+  }
+
+  List<TeamMember> _localMembers(Box<Map> box) {
+    final members = box.values.map((data) => TeamMember.fromMap(data)).toList();
+    members.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
     );
+    return members;
   }
 
   Future<void> upsertMember({
@@ -50,47 +76,76 @@ class TeamService {
     required double projectCommission,
     String note = '',
   }) async {
-    final userId = _activeUserId();
-    if (userId == null || userId.isEmpty) {
-      return;
+    try {
+      final userId = _activeUserId();
+      if (userId == null || userId.isEmpty) {
+        return;
+      }
+
+      final now = DateTime.now();
+      final member = TeamMember(
+        id: id ?? 'tm_${now.microsecondsSinceEpoch}',
+        name: name.trim(),
+        role: role.trim().isEmpty ? 'Team Member' : role.trim(),
+        monthlySalary: monthlySalary,
+        projectCommission: projectCommission,
+        updatedAt: now,
+        note: note.trim(),
+      );
+
+      // Save to Hive first for immediate UI feedback
+      if (Hive.isBoxOpen(LocalDatabase.teamMembersBox)) {
+        await Hive.box<Map>(
+          LocalDatabase.teamMembersBox,
+        ).put(member.id, member.toMap());
+      }
+
+      // Sync to Firestore in background
+      unawaited(_collection(userId).doc(member.id).set(member.toMap()));
+    } catch (_) {
+      // Silently fail
     }
-
-    final now = DateTime.now();
-    final member = TeamMember(
-      id: id ?? 'tm_${now.microsecondsSinceEpoch}',
-      name: name.trim(),
-      role: role.trim().isEmpty ? 'Team Member' : role.trim(),
-      monthlySalary: monthlySalary,
-      projectCommission: projectCommission,
-      updatedAt: now,
-      note: note.trim(),
-    );
-
-    await _collection(userId).doc(member.id).set(member.toMap());
   }
 
   Future<void> removeMember(String id) async {
-    final userId = _activeUserId();
-    if (userId == null || userId.isEmpty) {
-      return;
+    try {
+      // Delete from local Hive immediately
+      if (Hive.isBoxOpen(LocalDatabase.teamMembersBox)) {
+        await Hive.box<Map>(LocalDatabase.teamMembersBox).delete(id);
+      }
+
+      final userId = _activeUserId();
+      if (userId == null || userId.isEmpty) {
+        return;
+      }
+      unawaited(_collection(userId).doc(id).delete());
+    } catch (_) {
+      // Silently fail
     }
-    await _collection(userId).doc(id).delete();
   }
 
   Future<List<TeamMember>> _fetchAll() async {
-    final userId = _activeUserId();
-    if (userId == null || userId.isEmpty) {
-      return const [];
+    // Read from local Hive first
+    if (Hive.isBoxOpen(LocalDatabase.teamMembersBox)) {
+      return _localMembers(Hive.box<Map>(LocalDatabase.teamMembersBox));
     }
 
-    final snapshot = await _collection(userId).get();
-    final members = snapshot.docs
-        .map((doc) => TeamMember.fromMap(doc.data()))
-        .toList();
-    members.sort(
-      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-    );
-    return members;
+    try {
+      final userId = _activeUserId();
+      if (userId == null || userId.isEmpty) {
+        return const [];
+      }
+      final snapshot = await _collection(userId).get();
+      final members = snapshot.docs
+          .map((doc) => TeamMember.fromMap(doc.data()))
+          .toList();
+      members.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
+      return members;
+    } catch (_) {
+      return const [];
+    }
   }
 
   Future<int> postMonthlyCompensationExpenses(

@@ -7,9 +7,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 import '../../../core/models/erp_models.dart';
+import '../../../core/models/flat_models.dart';
 import '../../../core/services/app_mode_service.dart';
 import '../../../core/services/firebase_auth_service.dart';
 import '../../../database/local_database.dart';
+import 'invoice_repository.dart';
 
 const _invoiceHistorySyncPendingKey = 'invoice_history_sync_pending';
 const _invoiceHistoryDeletedIdsKey = 'invoice_history_deleted_ids';
@@ -17,21 +19,30 @@ const _invoiceHistoryCleanupCompletedKey = 'invoice_history_cleanup_completed';
 
 class InvoiceHistoryService {
   final FirebaseFirestore _firestore;
+  final InvoiceRepository _invoiceRepository;
   final bool useLocalStorage;
   final Connectivity _connectivity = Connectivity();
 
   InvoiceHistoryService({
     FirebaseFirestore? firestore,
     required this.useLocalStorage,
-  }) : _firestore = firestore ?? FirebaseFirestore.instance;
+  }) : _firestore = firestore ?? FirebaseFirestore.instance,
+       _invoiceRepository = InvoiceRepository(firestore: firestore);
 
   String? _activeUserId() => FirebaseAuth.instance.currentUser?.uid;
 
-  CollectionReference<Map<String, dynamic>> _collection(String userId) {
-    return _firestore
-        .collection('users')
-        .doc(userId)
-        .collection('invoice_history');
+  Future<String?> _activeFranchiseId() async {
+    final userId = _activeUserId();
+    if (userId == null || userId.isEmpty) {
+      return null;
+    }
+    try {
+      final profile = await _firestore.collection('users').doc(userId).get();
+      final branchId = profile.data()?['branchId'] as String?;
+      return (branchId != null && branchId.isNotEmpty) ? branchId : userId;
+    } catch (_) {
+      return userId;
+    }
   }
 
   Future<void> save(GeneratedQuotation quotation) async {
@@ -64,7 +75,11 @@ class InvoiceHistoryService {
       renderedTemplate: quotation.renderedTemplate,
       document: quotation,
     );
-    await _collection(userId).doc(record.id).set(record.toMap());
+    final franchiseId = await _activeFranchiseId();
+    if (franchiseId == null) {
+      return;
+    }
+    await _invoiceRepository.upsertInvoice(_toFlatInvoice(record, franchiseId));
   }
 
   List<InvoiceRecord> all() {
@@ -89,15 +104,16 @@ class InvoiceHistoryService {
       return;
     }
 
-    yield* _collection(userId)
-        .orderBy('generatedAt', descending: true)
-        .snapshots()
+    final franchiseId = await _activeFranchiseId();
+    if (franchiseId == null) {
+      yield const [];
+      return;
+    }
+
+    yield* _invoiceRepository
+        .watchInvoices(franchiseId)
         .map(
-          (snapshot) => _dedupeRecords(
-            snapshot.docs
-                .map((doc) => InvoiceRecord.fromMap(doc.data()))
-                .toList(),
-          ),
+          (snapshot) => _dedupeRecords(snapshot.map(_fromFlatInvoice).toList()),
         );
   }
 
@@ -113,7 +129,7 @@ class InvoiceHistoryService {
     if (userId == null || userId.isEmpty) {
       return;
     }
-    await _collection(userId).doc(id).delete();
+    await _invoiceRepository.deleteInvoice(id);
   }
 
   Future<void> clearAll() async {
@@ -132,16 +148,11 @@ class InvoiceHistoryService {
       return;
     }
 
-    final snapshot = await _collection(userId).get();
-    if (snapshot.docs.isEmpty) {
+    final franchiseId = await _activeFranchiseId();
+    if (franchiseId == null) {
       return;
     }
-
-    final batch = _firestore.batch();
-    for (final doc in snapshot.docs) {
-      batch.delete(doc.reference);
-    }
-    await batch.commit();
+    await _invoiceRepository.deleteInvoicesByFranchise(franchiseId);
   }
 
   Future<void> cleanupLegacyDuplicatesOnce() async {
@@ -199,34 +210,26 @@ class InvoiceHistoryService {
 
     final localRecords = _localRecords();
     final deletedIds = _pendingDeletedIds();
-    final deletedDocs = deletedIds.isEmpty
-        ? const <QueryDocumentSnapshot<Map<String, dynamic>>>[]
-        : (await _collection(
-            userId,
-          ).get()).docs.where((doc) => deletedIds.contains(doc.id)).toList();
+    final franchiseId = await _activeFranchiseId();
+    if (franchiseId == null) {
+      return;
+    }
 
-    if (localRecords.isEmpty && deletedDocs.isEmpty) {
+    if (localRecords.isEmpty && deletedIds.isEmpty) {
       await _clearSyncQueue();
       return;
     }
 
     try {
-      final batch = _firestore.batch();
-      final collection = _collection(userId);
-
       for (final record in localRecords) {
-        batch.set(
-          collection.doc(record.id),
-          record.toMap(),
-          SetOptions(merge: true),
+        await _invoiceRepository.upsertInvoice(
+          _toFlatInvoice(record, franchiseId),
         );
       }
 
-      for (final doc in deletedDocs) {
-        batch.delete(doc.reference);
+      for (final deletedId in deletedIds) {
+        await _invoiceRepository.deleteInvoice(deletedId);
       }
-
-      await batch.commit();
       await _clearSyncQueue();
     } catch (_) {
       // Keep the queue so the next online event can retry.
@@ -277,48 +280,53 @@ class InvoiceHistoryService {
       return false;
     }
 
-    final snapshot = await _collection(userId).get();
-    if (snapshot.docs.isEmpty) {
+    try {
+      final franchiseId = await _activeFranchiseId();
+      if (franchiseId == null) {
+        return false;
+      }
+
+      final flatRecords = await _invoiceRepository.fetchInvoices(franchiseId);
+      if (flatRecords.isEmpty) {
+        return true;
+      }
+
+      final records = flatRecords.map(_fromFlatInvoice).toList();
+      final deduped = <String, InvoiceRecord>{};
+      final duplicateIds = <String>[];
+
+      for (final record in records) {
+        final key = _recordKey(record);
+        final existing = deduped[key];
+        if (existing == null) {
+          deduped[key] = record;
+          continue;
+        }
+
+        if (record.generatedAt.isAfter(existing.generatedAt)) {
+          duplicateIds.add(existing.id);
+          deduped[key] = record;
+        } else {
+          duplicateIds.add(record.id);
+        }
+      }
+
+      if (duplicateIds.isEmpty) {
+        return true;
+      }
+
+      for (var index = 0; index < duplicateIds.length; index += 450) {
+        final end = (index + 450).clamp(0, duplicateIds.length);
+        for (final id in duplicateIds.sublist(index, end)) {
+          await _invoiceRepository.deleteInvoice(id);
+        }
+      }
+
       return true;
+    } on FirebaseException {
+      // Avoid blocking app startup in debug if rules/network are not ready.
+      return false;
     }
-
-    final records = snapshot.docs
-        .map((doc) => InvoiceRecord.fromMap(doc.data()))
-        .toList();
-    final deduped = <String, InvoiceRecord>{};
-    final duplicateIds = <String>[];
-
-    for (final record in records) {
-      final key = _recordKey(record);
-      final existing = deduped[key];
-      if (existing == null) {
-        deduped[key] = record;
-        continue;
-      }
-
-      if (record.generatedAt.isAfter(existing.generatedAt)) {
-        duplicateIds.add(existing.id);
-        deduped[key] = record;
-      } else {
-        duplicateIds.add(record.id);
-      }
-    }
-
-    if (duplicateIds.isEmpty) {
-      return true;
-    }
-
-    final collection = _collection(userId);
-    for (var index = 0; index < duplicateIds.length; index += 450) {
-      final batch = _firestore.batch();
-      final end = (index + 450).clamp(0, duplicateIds.length);
-      for (final id in duplicateIds.sublist(index, end)) {
-        batch.delete(collection.doc(id));
-      }
-      await batch.commit();
-    }
-
-    return true;
   }
 
   List<InvoiceRecord> _localRecords() {
@@ -449,6 +457,92 @@ class InvoiceHistoryService {
   bool _hasNetwork(List<ConnectivityResult> connectivityResults) {
     return connectivityResults.any(
       (result) => result != ConnectivityResult.none,
+    );
+  }
+
+  FlatInvoiceModel _toFlatInvoice(InvoiceRecord record, String franchiseId) {
+    return FlatInvoiceModel(
+      id: record.id,
+      invoiceNumber: record.invoiceNo.isNotEmpty
+          ? record.invoiceNo
+          : record.quotationNo,
+      clientName: record.clientName,
+      items: record.document.lineItems
+          .map(
+            (line) => {
+              'name': line.name,
+              'qty': line.quantity,
+              'unitPrice': line.unitPrice,
+              'total': line.total,
+            },
+          )
+          .toList(),
+      grandTotal: record.total,
+      paymentReceived: record.paymentReceived,
+      remainingPayment: record.remainingPayment,
+      franchiseId: franchiseId,
+      status: record.remainingPayment <= 0 ? 'paid' : 'pending',
+      quotationNo: record.parentQuotationNo,
+      isInvoice: record.isInvoice,
+      renderedTemplate: record.renderedTemplate,
+      createdAt: record.generatedAt,
+    );
+  }
+
+  InvoiceRecord _fromFlatInvoice(FlatInvoiceModel flat) {
+    final generatedAt = flat.createdAt ?? DateTime.now();
+    final quotationNo = flat.quotationNo.isNotEmpty
+        ? flat.quotationNo
+        : flat.invoiceNumber;
+    final category = ServiceCategory.electricFence;
+    final lineItems = flat.items
+        .map(
+          (item) => QuotationLine(
+            name: item['name']?.toString() ?? '',
+            quantity: (item['qty'] as num?)?.toDouble() ?? 0,
+            unitPrice: (item['unitPrice'] as num?)?.toDouble() ?? 0,
+            unit: 'unit',
+          ),
+        )
+        .toList();
+
+    final generated = GeneratedQuotation(
+      quotationNo: quotationNo,
+      clientName: flat.clientName,
+      category: category,
+      packageName: '',
+      templateName: '',
+      generatedDate: generatedAt,
+      lineItems: lineItems,
+      optionalItems: const [],
+      subtotal: flat.grandTotal,
+      grandTotal: flat.grandTotal,
+      warranty: '',
+      terms: const [],
+      globalSections: const [],
+      placeholderValues: const {},
+      renderedTemplate: flat.renderedTemplate,
+      isInvoice: flat.isInvoice,
+      invoiceNo: flat.invoiceNumber,
+      paymentReceived: flat.paymentReceived,
+      remainingPayment: flat.remainingPayment,
+    );
+
+    return InvoiceRecord(
+      id: flat.id,
+      quotationNo: quotationNo,
+      parentQuotationNo: quotationNo,
+      isInvoice: flat.isInvoice,
+      invoiceNo: flat.invoiceNumber,
+      clientName: flat.clientName,
+      category: category,
+      packageName: '',
+      total: flat.grandTotal,
+      paymentReceived: flat.paymentReceived,
+      remainingPayment: flat.remainingPayment,
+      generatedAt: generatedAt,
+      renderedTemplate: flat.renderedTemplate,
+      document: generated,
     );
   }
 }

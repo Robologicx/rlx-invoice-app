@@ -9,7 +9,7 @@ import '../../../core/services/firebase_auth_service.dart';
 import '../../../shared/presentation/widgets/glass_panel.dart';
 import '../../../shared/presentation/widgets/metric_card.dart';
 import '../../finance/application/finance_report_provider.dart';
-import '../../inventory/application/inventory_controller.dart';
+import 'package:rlx_invoice/features/inventory/application/inventory_controller_v2.dart';
 import '../../invoices/application/invoice_history_service.dart';
 
 class DashboardScreen extends ConsumerWidget {

@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../ai/prompt_parser.dart';
 import '../../../core/data/demo_data.dart';
 import '../../../core/models/erp_models.dart';
-import '../../../features/inventory/application/inventory_controller.dart';
+import 'package:rlx_invoice/features/inventory/application/inventory_controller_v2.dart';
 import '../../../invoice_engine/service_rule_engine.dart';
 import 'invoice_history_service.dart';
 import 'template_engine.dart';

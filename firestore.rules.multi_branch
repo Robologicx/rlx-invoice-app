@@ -1,0 +1,136 @@
+// Firestore Security Rules for Multi-Branch Franchise System
+// This file defines access control for Super Admin Panel and Branch-isolated data
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isSuperAdmin() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'super_admin';
+    }
+    
+    function isBranchAdmin() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'branch_admin';
+    }
+    
+    function getUserBranchId() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.branchId;
+    }
+    
+    // ===== USERS COLLECTION =====
+    match /users/{userId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow write: if isSuperAdmin() || request.auth.uid == userId;
+      
+      match /data/{document=**} {
+        // Existing user-level data (invoices, quotations, etc.)
+        allow read: if request.auth.uid == userId || isSuperAdmin();
+        allow write: if request.auth.uid == userId;
+      }
+    }
+    
+    // ===== BRANCHES COLLECTION (Super Admin only) =====
+    match /branches/{branchId} {
+      allow read: if isSuperAdmin();
+      allow create: if isSuperAdmin();
+      allow update: if isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+    
+    // ===== ROYALTIES COLLECTION (Super Admin only) =====
+    match /royalties/{royaltyId} {
+      allow read: if isSuperAdmin();
+      allow create: if isSuperAdmin();
+      allow update: if isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+    
+    // ===== BRANCH ANALYTICS COLLECTION (Super Admin only) =====
+    match /branch_analytics/{analyticsId} {
+      allow read: if isSuperAdmin();
+      allow write: if isSuperAdmin();
+    }
+    
+    // ===== INVOICES COLLECTION =====
+    // Enhanced to support multi-branch filtering
+    match /users/{userId}/data/{invoiceId} {
+      // Super Admin can read all invoices from all branches
+      // Branch Admin can only read their own branch invoices
+      allow read: if isSuperAdmin() || 
+                     (request.auth.uid == userId && 
+                      (resource.data.branchId == null || 
+                       resource.data.branchId == getUserBranchId()));
+      
+      allow write: if request.auth.uid == userId &&
+                      (resource.data.branchId == null || 
+                       resource.data.branchId == getUserBranchId());
+    }
+    
+    // ===== QUOTATIONS COLLECTION =====
+    match /users/{userId}/data/{quotationId} {
+      allow read: if isSuperAdmin() || 
+                     (request.auth.uid == userId && 
+                      (resource.data.branchId == null || 
+                       resource.data.branchId == getUserBranchId()));
+      
+      allow write: if request.auth.uid == userId &&
+                      (resource.data.branchId == null || 
+                       resource.data.branchId == getUserBranchId());
+    }
+    
+    // ===== PROJECTS COLLECTION =====
+    match /users/{userId}/data/{projectId} {
+      allow read: if isSuperAdmin() || 
+                     (request.auth.uid == userId && 
+                      (resource.data.branchId == null || 
+                       resource.data.branchId == getUserBranchId()));
+      
+      allow write: if request.auth.uid == userId &&
+                      (resource.data.branchId == null || 
+                       resource.data.branchId == getUserBranchId());
+    }
+    
+    // ===== INVENTORY COLLECTION =====
+    match /users/{userId}/data/{inventoryId} {
+      allow read: if isSuperAdmin() || 
+                     (request.auth.uid == userId && 
+                      (resource.data.branchId == null || 
+                       resource.data.branchId == getUserBranchId()));
+      
+      allow write: if request.auth.uid == userId &&
+                      (resource.data.branchId == null || 
+                       resource.data.branchId == getUserBranchId());
+    }
+    
+    // ===== FINANCE/ACCOUNTS COLLECTION =====
+    match /users/{userId}/data/{financeId} {
+      allow read: if isSuperAdmin() || 
+                     (request.auth.uid == userId && 
+                      (resource.data.branchId == null || 
+                       resource.data.branchId == getUserBranchId()));
+      
+      allow write: if request.auth.uid == userId &&
+                      (resource.data.branchId == null || 
+                       resource.data.branchId == getUserBranchId());
+    }
+    
+    // ===== TEAM MEMBERS COLLECTION =====
+    match /users/{userId}/data/{teamMemberId} {
+      allow read: if isSuperAdmin() || 
+                     (request.auth.uid == userId && 
+                      (resource.data.branchId == null || 
+                       resource.data.branchId == getUserBranchId()));
+      
+      allow write: if request.auth.uid == userId &&
+                      (resource.data.branchId == null || 
+                       resource.data.branchId == getUserBranchId());
+    }
+  }
+}

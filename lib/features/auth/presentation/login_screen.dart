@@ -16,9 +16,7 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _displayNameController = TextEditingController();
 
-  bool _isLogin = true;
   bool _isLoading = false;
   String? _errorMessage;
   bool _obscurePassword = true;
@@ -34,7 +32,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
-    _displayNameController.dispose();
     super.dispose();
   }
 
@@ -51,17 +48,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       final authService = ref.read(firebaseAuthServiceProvider);
       final appMode = ref.read(appModeProvider.notifier);
 
-      if (_isLogin) {
-        await authService.login(
-          email: _emailController.text.trim(),
-          password: _passwordController.text,
-        );
-      } else {
-        await authService.signUp(
-          email: _emailController.text.trim(),
-          password: _passwordController.text,
-          displayName: _displayNameController.text.trim(),
-        );
+      await authService.login(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+      final userRole = await authService.getUserRole();
+
+      if (userRole == 'super_admin') {
+        await authService.logout();
+        throw 'Please use the Super Admin login page for this account.';
       }
 
       await hydrateAppSettingsFromCloud();
@@ -132,7 +128,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _isLogin ? 'Login to your account' : 'Create a new account',
+                  'Franchise login for branch users',
                   textAlign: TextAlign.center,
                   style: Theme.of(
                     context,
@@ -189,25 +185,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-
-                  // Display name field (sign up only)
-                  if (!_isLogin)
-                    Column(
-                      children: [
-                        TextField(
-                          controller: _displayNameController,
-                          decoration: InputDecoration(
-                            labelText: 'Full Name',
-                            prefixIcon: const Icon(Icons.person_outline),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            enabled: !_isLoading,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-                    ),
 
                   // Password field
                   TextField(
@@ -304,7 +281,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             ),
                           )
                         : Text(
-                            _isLogin ? 'Login' : 'Sign Up',
+                            'Login',
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -312,34 +289,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           ),
                   ),
                 const SizedBox(height: 16),
-
-                if (!_offlineMode)
-                  // Toggle between login and sign up
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        _isLogin
-                            ? 'Don\'t have an account? '
-                            : 'Already have an account? ',
-                        style: TextStyle(color: Colors.grey[600]),
-                      ),
-                      TextButton(
-                        onPressed: _isLoading
-                            ? null
-                            : () {
-                                setState(() {
-                                  _isLogin = !_isLogin;
-                                  _errorMessage = null;
-                                });
-                              },
-                        child: Text(
-                          _isLogin ? 'Sign Up' : 'Login',
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                    ],
+                if (!_offlineMode) ...[
+                  TextButton(
+                    onPressed: _isLoading
+                        ? null
+                        : () {
+                            context.go('/super_admin_login');
+                          },
+                    child: const Text('Super Admin Login'),
                   ),
+                  Text(
+                    'New franchise accounts are created by Head Office only.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                ],
                 const SizedBox(height: 40),
               ],
             ),

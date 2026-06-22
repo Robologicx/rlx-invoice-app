@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 import '../../../app/theme/app_theme.dart';
 import '../../../core/models/erp_models.dart';
 import '../../../shared/presentation/widgets/glass_panel.dart';
-import '../application/inventory_controller.dart';
+import 'package:rlx_invoice/features/inventory/application/inventory_controller_v2.dart';
 
 class InventoryScreen extends ConsumerStatefulWidget {
   const InventoryScreen({super.key});

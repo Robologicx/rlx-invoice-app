@@ -69,18 +69,6 @@ final financeSummaryProvider = Provider<AsyncValue<FinanceSummary>>((ref) {
   if (invoicesAsync.isLoading || expensesAsync.isLoading) {
     return const AsyncValue.loading();
   }
-  if (invoicesAsync.hasError) {
-    return AsyncValue.error(
-      invoicesAsync.error!,
-      invoicesAsync.stackTrace ?? StackTrace.current,
-    );
-  }
-  if (expensesAsync.hasError) {
-    return AsyncValue.error(
-      expensesAsync.error!,
-      expensesAsync.stackTrace ?? StackTrace.current,
-    );
-  }
 
   final invoiceRecords = invoicesAsync.valueOrNull ?? const <InvoiceRecord>[];
   final expenseRecords = expensesAsync.valueOrNull ?? const <ExpenseRecord>[];

@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../../../app/theme/app_theme.dart';
 import '../../../core/models/erp_models.dart';
-import '../../inventory/application/inventory_controller.dart';
+import 'package:rlx_invoice/features/inventory/application/inventory_controller_v2.dart';
 import '../../../shared/presentation/widgets/glass_panel.dart';
 import '../application/invoice_ai_service.dart';
 import '../application/invoice_history_service.dart';

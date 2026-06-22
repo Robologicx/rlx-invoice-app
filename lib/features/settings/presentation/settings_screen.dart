@@ -13,7 +13,7 @@ import '../../../core/models/erp_models.dart';
 import '../../../core/services/firebase_auth_service.dart';
 import '../../../shared/presentation/widgets/glass_panel.dart';
 import '../../finance/application/expense_service.dart';
-import '../../inventory/application/inventory_controller.dart';
+import 'package:rlx_invoice/features/inventory/application/inventory_controller_v2.dart';
 import '../../invoices/application/invoice_ai_service.dart';
 import '../../invoices/application/invoice_history_service.dart';
 import '../../team/application/team_service.dart';
